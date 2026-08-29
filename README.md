@@ -129,22 +129,56 @@ part. The deal you just watched tells you who needs what before they have advert
 
 Dark, dense, single-theme, and built to be operated rather than read.
 
-- **Elevation is colour, not shadow.** Three surfaces — `#0B0F19`, `#111827`, `#1F2937` —
-  separated by 1px hairlines at `rgba(255,255,255,0.08)`. There is not one `box-shadow` used
-  for depth. Shadows blur an edge; a technical panel wants a hard one.
-- **Dual fonts, enforced.** Inter for anything read as language, IBM Plex Mono for every
-  number, on tabular figures so a column of digits compares by eye. Both are embedded as
-  base64 rather than linked, so the downloaded single file and the hosted page render
-  identically — a webfont link would fail on `file://`, and the downloaded copy is the one
-  people take to a draft on hotel wifi.
-- **An 8px grid.** Every margin, padding and gap is a multiple of 8, or of 4 for genuinely
-  sub-unit insets.
-- **Telemetry alignment.** Identity left, numbers right, in roster rows and data tables alike,
-  so the eye learns one contract and reuses it everywhere.
-- **Selection is a 2px amber rule** down the left edge with a low-opacity wash falling away to
-  the right — not a glowing border, which at this density reads as an error state.
-- **Amber means "look here". Green and red mean better and worse.** They never mix, and both
-  are muted to enterprise-financial intensity so the data is never shouted at.
+- **Elevation is colour, not shadow.** Deep navy ground at `#080D18`, steel panels at
+  `#101827`, raised surfaces at `#1B2536`, separated by 1px hairlines at
+  `rgba(255,255,255,0.07)`. There is not one `box-shadow` used for depth in the stylesheet.
+- **Dual fonts, enforced.** Inter for anything read as language, JetBrains Mono for every
+  number, on tabular figures. Both **embedded as base64 rather than linked**: a webfont link
+  fails on `file://`, and the downloaded single file is the copy that goes to a draft on
+  hotel wifi.
+- **An 8px grid**, telemetry alignment (identity left, numbers right) in roster rows and
+  tables alike, and selection as a 2px amber rule rather than a glow.
+- **Amber means "look here". Sage and terracotta mean better and worse.** They never mix.
+
+### The diverging pair was measured, not chosen
+
+Muted sage for gains and dusty terracotta for losses is the right instinct and the first
+pair that looked correct was unusable. `#7FA88C` / `#C08A76` scored a deuteranope ΔE of
+**3.1** and a normal-vision ΔE of **11.2** — desaturating a green and a red moves both
+toward the same grey, so a red-green colourblind reader could not have told a gain from a
+loss, and nor could anyone else at a glance.
+
+Separating the pair on **lightness** as well as hue is the fix. The shipped values score
+deutan **15.5** and normal **20.8**. There are two terracottas, because contrast and
+separation pull against each other: the bar fill is the darker step (3.7:1, the correct
+floor for a graphical object) and the text ink is a lighter step that clears 4.5:1 on every
+surface in the app. And every number carries a `+`/`−` glyph, so direction never rests on
+hue at all.
+
+### The instruments
+
+- **Bullet charts, not bars.** "+4.4 a week" means nothing without the thing it is measured
+  against, so every bullet carries a reference marker showing what a *naive* read of the
+  same trade says — point-summing, or what the other manager perceives from name value. The
+  distance between the bar and the marker is this application's entire argument, drawn to
+  scale. Zero is a drawn position on a symmetric scale, so direction survives greyscale.
+- **Gauges** for acceptance and lineup fit, with a tick at the threshold where a deal
+  becomes worth sending, so a bare percentage has a meaning.
+- **A funnel** for the screen: packages screened → evaluated exactly → worth sending, on a
+  square-root scale, because on a linear one the last step is a single pixel.
+- **The exchange matrix** frames what leaves and what arrives as two halves of one
+  instrument rather than two lists that happen to sit side by side.
+- **The ghosting matrix** treats a trade as a negotiation. It reads the opponent's roster
+  *as it would be after the deal*, names the positions your own offer just left them
+  exposed at, and predicts which of your players they come back asking for — excluding the
+  ones they are sending you, since nobody counters for a player they just traded away.
+- **A drill-down drawer** rather than a modal, so the row you clicked and its neighbours
+  stay on screen. It itemises the arithmetic — every term, the multiplication, the
+  contribution — and totals to the projection in its own header, which a browser check
+  asserts.
+
+All of the geometry is a pure function in `instruments.js` and tested there. A chart that
+is wrong does not throw; it draws a plausible bar of the wrong length and is believed.
 
 ## The league it defaults to
 
@@ -328,7 +362,7 @@ pipeline/          Python. Fetches, models, and compiles the data pack.
   refresh.py       re-fetch what moves, rebuild everything
 
 app/css/
-  fonts.css        Inter + IBM Plex Mono, base64 so the offline build matches the hosted one
+  fonts.css        Inter + JetBrains Mono, base64 so the offline build matches the hosted one
   app.css          the design system
 
 app/js/            The engines. Plain ES modules, no dependencies.
@@ -341,7 +375,8 @@ app/js/            The engines. Plain ES modules, no dependencies.
   draft.js         live draft board
   espn.js          ESPN league import
   finder.js        trade search + acceptance model
-  scout.js         league board, roster shape, openings
+  scout.js         league board, roster shape, openings, ghosting matrix
+  instruments.js   bullet charts, gauges, funnels -- pure, tested geometry
   main.js          UI
 
 scripts/
@@ -358,9 +393,9 @@ scripts/
 ## Running it
 
 ```bash
-npm test                          # 290 tests
+npm test                          # 309 tests
 node scripts/bundle.mjs           # build dist/tradedesk.html
-node scripts/verify-browser.mjs   # 54 end-to-end checks, file:// and served over http
+node scripts/verify-browser.mjs   # 68 end-to-end checks, file:// and served over http
 node scripts/thesis.mjs           # the three claims, checked against real projections
 node scripts/league-edges.mjs     # what this scoring format actually does
 

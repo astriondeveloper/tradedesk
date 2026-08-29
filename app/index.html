@@ -6,10 +6,10 @@
 <title>Trade Desk</title>
 <meta name="description" content="Full-PPR fantasy football projections and a trade evaluator that values players against your own starting lineup rather than summing their points.">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#0E141A">
+<meta name="theme-color" content="#080D18">
 <!-- Inline so it survives bundling into one file and costs no request when hosted:
      two opposed arrows in the app's amber, on the app's ink. -->
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230E141A'/><g fill='none' stroke='%23E0B040' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'><path d='M6 12.5h16m-4.5-4.5 4.5 4.5-4.5 4.5'/><path d='M26 21.5H10m4.5-4.5L10 21.5l4.5 4.5'/></g></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23080D18'/><g fill='none' stroke='%23E0B040' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'><path d='M6 12.5h16m-4.5-4.5 4.5 4.5-4.5 4.5'/><path d='M26 21.5H10m4.5-4.5L10 21.5l4.5 4.5'/></g></svg>">
 <link rel="stylesheet" href="css/fonts.css">
 <link rel="stylesheet" href="css/app.css">
 </head>
@@ -36,7 +36,7 @@
 <section class="view" id="view-trade">
 
   <!-- Only appears once a league is imported: before that there is nobody else to watch. -->
-  <div class="panel" id="scoutBar" hidden>
+  <div class="panel" id="scoutBar" data-collapsible hidden>
     <p class="eyebrow">
       <b>Load any two teams</b> &nbsp;·&nbsp; you do not have to be in the deal
       <span class="spacer"></span>
@@ -174,7 +174,6 @@
         <tbody id="pBody"></tbody>
       </table>
     </div>
-    <div id="pDetail"></div>
   </div>
 </section>
 
@@ -210,7 +209,7 @@
 
 <!-- ------------------------------------------------------------------ LEAGUE -->
 <section class="view" id="view-league" hidden>
-  <div class="panel">
+  <div class="panel" data-collapsible>
     <p class="eyebrow"><b>Import your ESPN league</b> &nbsp;·&nbsp; rosters, scoring and slots</p>
     <p class="note" style="margin-top:0">
       This app cannot call ESPN, and that is deliberate: a private league needs your
@@ -237,7 +236,7 @@
     <div id="espnResult"></div>
   </div>
 
-  <div class="panel">
+  <div class="panel" data-collapsible>
     <p class="eyebrow"><b>Scoring</b> &nbsp;·&nbsp; every field re-derives the whole app</p>
     <div class="grid g4" style="margin-bottom:14px">
       <label class="fld"><span>Preset</span><select id="preset"></select></label>
@@ -287,7 +286,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" data-collapsible>
     <p class="eyebrow"><b>Replacement level</b> &nbsp;·&nbsp; computed, not typed</p>
     <div id="replBox"></div>
   </div>
@@ -313,6 +312,19 @@
 </footer>
 
 </div>
+
+<!-- Player drill-down. Outside .wrap so it can pin to the viewport edge. -->
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" hidden>
+  <div class="drawer-head">
+    <div>
+      <h2 id="drawerTitle"></h2>
+      <div class="sub" id="drawerSub"></div>
+    </div>
+    <button class="drawer-close" id="drawerClose" aria-label="Close">×</button>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
+</aside>
 
 <script src="data/pack.js"></script>
 <script src="data/demo.js"></script>
