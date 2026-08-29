@@ -52,6 +52,11 @@ ALIASES = {
     "dj moore": "d j moore",
     "cd lamb": "ceedee lamb",
     "jsn": "jaxon smith njigba",
+    # ESPN prints the everyday name; nflverse carries the legal one. Without these the
+    # resolver falls back to initial-plus-surname, which happens to be right here and is
+    # exactly the kind of luck a roster join should not depend on.
+    "kenny gainwell": "kenneth gainwell",
+    "jeremiah love": "jeremiyah love",
 }
 
 

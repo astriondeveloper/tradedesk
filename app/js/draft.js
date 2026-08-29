@@ -13,7 +13,7 @@
  */
 
 import { DEFAULT_SCORING } from './scoring.js'
-import { computeReplacement, replacementDetail } from './replacement.js'
+import { computeReplacement, replacementDetail, DEFAULT_LEAGUE } from './replacement.js'
 import { playerPPG } from './trade.js'
 import { slotsFromCounts } from './lineup.js'
 
@@ -131,11 +131,11 @@ export function riskScore(player) {
 export function draftBoard(state) {
   const s = isObj(state) ? state : {}
   const cfg = isObj(s.cfg) ? s.cfg : DEFAULT_SCORING
-  const league = isObj(s.league) ? s.league : { teams: 12, slots: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1, BEN: 7 } }
+  const league = isObj(s.league) ? s.league : DEFAULT_LEAGUE
   const available = (s.available || []).filter(isObj)
   const myRoster = (s.myRoster || []).filter(isObj)
   const pickNumber = num(s.pickNumber, 1)
-  const picksUntilNext = num(s.picksUntilNext, Math.max(1, (num(league.teams, 12) - 1) * 2))
+  const picksUntilNext = num(s.picksUntilNext, Math.max(1, (num(league.teams, DEFAULT_LEAGUE.teams) - 1) * 2))
 
   const pts = (p) => playerPPG(p, cfg)
 
@@ -293,7 +293,7 @@ export function bestAvailable(state, n = 10) {
 export function positionScarcity(state) {
   const s = isObj(state) ? state : {}
   const cfg = isObj(s.cfg) ? s.cfg : DEFAULT_SCORING
-  const league = s.league || { teams: 12, slots: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1, BEN: 7 } }
+  const league = s.league || DEFAULT_LEAGUE
   const available = (s.available || []).filter(isObj)
   const pts = (p) => playerPPG(p, cfg)
   const replacement = computeReplacement(available, league, pts)

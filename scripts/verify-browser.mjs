@@ -57,18 +57,46 @@ note(consoleErrors.length === 0, 'no console errors', consoleErrors.slice(0, 2).
 const packInfo = await page.evaluate(() => ({
   players: window.TD_PACK?.players?.length ?? 0,
   season: window.TD_PACK?.meta?.season,
-  demo: !!window.TD_DEMO,
+  league: window.TD_LEAGUE?.rosters?.length ?? 0,
+  myTeam: window.TD_LEAGUE?.myTeam,
+  leagueTeams: window.TD_LEAGUE?.teams,
 }))
 note(packInfo.players > 900, 'data pack present', `${packInfo.players} players, ${packInfo.season}`)
-note(packInfo.demo, 'demo league present')
+note(packInfo.league === packInfo.leagueTeams && packInfo.league > 1,
+  'the real league is present, every roster in it',
+  `${packInfo.league} of ${packInfo.leagueTeams} teams, you are ${packInfo.myTeam}`)
 
 // --- the trade view rendered a real verdict -----------------------------------
 const rowsA = await page.locator('#rowsA .row').count()
 const rowsB = await page.locator('#rowsB .row').count()
-note(rowsA > 5 && rowsB > 5, 'both rosters populated from the demo', `${rowsA} / ${rowsB}`)
+note(rowsA > 5 && rowsB > 5, 'both rosters populated from the league', `${rowsA} / ${rowsB}`)
 
 const names = await page.locator('#rowsA .nm').allTextContents()
 note(names.some((n) => n.trim().length > 3), 'roster shows real player names', names[0] || '')
+
+// The shipped league feeds the team loader, so it works on first open with nothing
+// imported: it should already be pointing at your roster and this week's opponent.
+const picks = await page.evaluate(() => {
+  const label = (id) => {
+    const sel = document.getElementById(id)
+    return sel?.selectedOptions?.[0]?.textContent || ''
+  }
+  return {
+    visible: !document.getElementById('scoutBar').hidden,
+    a: label('pickA'), b: label('pickB'), me: label('pickMe'),
+    opts: document.getElementById('pickA')?.options.length ?? 0,
+    teams: window.TD_LEAGUE?.rosters?.length ?? 0,
+    mine: window.TD_LEAGUE?.myTeam,
+    who: document.getElementById('scoutWho')?.textContent || '',
+  }
+})
+note(picks.visible, 'the team loader is available without importing anything')
+note(picks.a.startsWith(picks.mine), 'opens on your own roster', picks.a)
+note(!!picks.b && picks.b !== picks.a, "the other side is this week's opponent", picks.b)
+note(picks.me.startsWith(picks.mine), 'and knows which team is yours', picks.me)
+note(picks.opts === picks.teams + 1, 'every league team is selectable',
+  `${picks.opts} options for ${picks.teams} teams`)
+note(/you are in this deal/.test(picks.who), 'the scout line reads from your seat', picks.who.trim())
 
 // Move a player and confirm a verdict appears with real numbers.
 await page.locator('#rowsA .row .pill').first().click()
@@ -173,7 +201,9 @@ await page.screenshot({ path: join(SHOTS, 'desktop-league.png'), fullPage: true 
 await page.locator('nav.tabs button[data-view="propose"]').click()
 await page.waitForTimeout(900)
 const oppCount = await page.locator('#fOpponent option').count()
-note(oppCount > 0, 'propose tab offers an opponent', `${oppCount} option(s)`)
+const rivals = await page.evaluate(() => (window.TD_LEAGUE?.rosters?.length ?? 1) - 1)
+note(oppCount >= rivals, 'propose tab offers every other team in the league',
+  `${oppCount} option(s) for ${rivals} rivals`)
 await page.locator('#fRun').click()
 await page.waitForTimeout(14000)
 const proposals = await page.locator('#fResults .proposal').count()
@@ -225,6 +255,42 @@ if (proposals > 0) {
   note(!/NaN|undefined/.test(ghostText || ''), 'no NaN in the ghosting matrix')
 }
 await page.screenshot({ path: join(SHOTS, 'desktop-propose.png'), fullPage: true })
+
+// --- the opponent selection must survive side A changing --------------------------
+// Which teams are listed depends on who is loaded into side A, so the list reorders when
+// you switch your own roster. An index carried across that rebuild points at a different
+// manager; results priced against one opponent must never be shown under another's name.
+const oppBefore = await page.locator('#fOpponent').inputValue()
+await page.locator('nav.tabs button[data-view="trade"]').click()
+await page.waitForTimeout(600)
+// Deliberately a team that is neither yours nor the selected opponent: the list reorders
+// around it, so the selection has to be preserved by name and cannot merely survive by
+// landing on the same index.
+const swapTo = await page.evaluate((opp) => {
+  const mine = window.TD_LEAGUE.myTeam
+  const i = window.TD_LEAGUE.rosters.findIndex((t) => t.name !== mine && !opp.startsWith(t.name))
+  return { index: String(i), name: window.TD_LEAGUE.rosters[i].name }
+}, oppBefore)
+await page.selectOption('#pickA', swapTo.index)
+await page.locator('#pickLoad').click()
+await page.waitForTimeout(2500)
+await page.locator('nav.tabs button[data-view="propose"]').click()
+await page.waitForTimeout(900)
+const oppAfter = await page.locator('#fOpponent').inputValue()
+const loadedA = await page.locator('#nameA').inputValue()
+note(loadedA === swapTo.name && oppAfter === oppBefore,
+  'the opponent survives side A changing, by name rather than by position',
+  `side A ${loadedA}, opponent ${oppBefore} -> ${oppAfter}`)
+note(!oppAfter.startsWith(loadedA), 'and is never repointed at your own roster', oppAfter)
+const staleResults = await page.locator('#fResults .proposal').count()
+note(staleResults === 0, 'and proposals priced against the old pairing are cleared',
+  `${staleResults} stale card(s)`)
+
+// Put side A back on the user's own roster for the checks that follow.
+await page.locator('nav.tabs button[data-view="trade"]').click()
+await page.waitForTimeout(500)
+await page.locator('#loadLeague').click()
+await page.waitForTimeout(2500)
 
 // --- ESPN import ---
 await page.locator('nav.tabs button[data-view="league"]').click()
@@ -319,7 +385,13 @@ if (hasPicker > 0) {
   note(deltaBefore !== deltaAfter, 'marking a traded player out changes the verdict',
     `${deltaBefore} -> ${deltaAfter}`)
   const overrideNote = await page.locator('#verdict').textContent()
-  note(/manual status/.test(overrideNote || ''), 'the override is disclosed in the verdict')
+  note(/flows? through the numbers above/.test(overrideNote || ''),
+    'the override is disclosed in the verdict')
+  // Statuses have two sources and the verdict must not claim ESPN's designations as the
+  // user's own. With a seeded league and one hand-set player, both counts should appear.
+  note(/set by you/.test(overrideNote || '') && /from ESPN/.test(overrideNote || ''),
+    'and says which came from ESPN and which you set yourself',
+    (overrideNote || '').match(/\d+ from ESPN|\d+ set by you/g)?.join(', ') || '')
 }
 const staleShown = await page.locator('#verdict .stale').count()
 note(staleShown > 0, 'data age warning is shown with the verdict')
@@ -329,7 +401,7 @@ note(staleShown > 0, 'data age warning is shown with the verdict')
 // Put two rivals in the panels, declare yourself a third team, and check the board reports
 // what their deal did to a roster that did not change. This is the path that has no
 // equivalent anywhere else in the app, so nothing else covers it.
-note(await page.locator('#scoutBar').isVisible(), 'the team loader appears once a league is imported')
+note(await page.locator('#scoutBar').isVisible(), 'the team loader is on the trade view')
 
 await page.selectOption('#pickMe', '3')   // I am Delta Fours
 await page.selectOption('#pickA', '0')    // Alpha and Beta trade
@@ -377,6 +449,62 @@ await page.waitForTimeout(3000)
 const inDeal = await page.locator('#scoutWho').textContent()
 note(/you are in this deal/.test(inDeal || ''), 'and it knows when you are in the deal',
   (inDeal || '').trim())
+
+// --- a saved session that belongs to a different league --------------------------
+// The rosters ship with the app, so a session saved before the league was last
+// re-transcribed is a snapshot of a league that no longer exists. It must not be
+// restored on top of today's pack -- but the things that are about players rather than
+// about the league (scoring, injury overrides) should survive.
+await page.evaluate(() => localStorage.setItem('tradedesk:v2', JSON.stringify({
+  stamp: 'some other league|2025|w9|12',
+  nameA: 'Ground Game', nameB: 'Air Raid',
+  A: window.TD_LEAGUE.rosters[2].players.slice(0, 3).map((p) => p.id),
+  B: window.TD_LEAGUE.rosters[3].players.slice(0, 3).map((p) => p.id),
+  league: { teams: 12, playoffWeeks: [14, 15, 16] },
+  status: { [window.TD_LEAGUE.rosters[0].players[0].id]: 'OUT' },
+})))
+await page.reload({ waitUntil: 'load' })
+await page.waitForTimeout(2500)
+const recovered = await page.evaluate(() => {
+  const saved = JSON.parse(localStorage.getItem('tradedesk:v2'))
+  return {
+    nameA: document.getElementById('nameA').value,
+    nameB: document.getElementById('nameB').value,
+    teams: saved.league.teams,
+    keptStatus: saved.status[window.TD_LEAGUE.rosters[0].players[0].id],
+    mine: window.TD_LEAGUE.myTeam,
+  }
+})
+note(recovered.nameA === recovered.mine && !!recovered.nameB && recovered.nameB !== recovered.nameA,
+  'a session from a different league is replaced by the shipped rosters',
+  `${recovered.nameA} vs ${recovered.nameB}`)
+note(recovered.teams === 8, 'and its stale league size is discarded too', `teams ${recovered.teams}`)
+note(recovered.keptStatus === 'OUT', 'while injury overrides survive, being about players')
+
+// --- league injury designations apply to every roster, not just the loaded ones ----
+// The Propose tab prices a rival straight out of the league file, so a designation that
+// only landed once you had opened that team would make the same search return different
+// numbers depending on where you had clicked.
+const seeded = await page.evaluate(() => {
+  const flagged = window.TD_LEAGUE.rosters.flatMap((t) => t.players).filter((p) => p.status)
+  const store = JSON.parse(localStorage.getItem('tradedesk:v2') || '{}')
+  const status = store.status || {}
+  return {
+    total: flagged.length,
+    applied: flagged.filter((p) => status[p.id] === p.status).length,
+  }
+})
+note(seeded.total > 0 && seeded.applied === seeded.total,
+  'every league injury designation is applied, not just the loaded teams',
+  `${seeded.applied}/${seeded.total}`)
+
+// The reload cleared the trade, and later checks read the verdict on this tab. Put a deal
+// back so there is one to read.
+await page.locator('nav.tabs button[data-view="trade"]').click()
+await page.waitForTimeout(800)
+await page.locator('#rowsA .row .pill').first().click()
+await page.locator('#rowsB .row .pill').first().click()
+await page.waitForTimeout(2500)
 
 // --- method tab ---------------------------------------------------------------
 await page.locator('nav.tabs button[data-view="method"]').click()
