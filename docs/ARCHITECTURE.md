@@ -44,11 +44,30 @@ single data pack. No runtime network calls — the app is fully offline once bui
 single most valuable input in the whole build:
 
 ```
-implied_team_total = total_line / 2  −  spread_line / 2
+home_implied = total_line / 2  +  spread_line / 2
+away_implied = total_line / 2  −  spread_line / 2
 ```
 
-The betting market prices team scoring environment better than any homegrown team model, so
-we anchor to it rather than competing with it. `roof == "dome"` feeds the kicker adjustment.
+**`spread_line` is positive when the HOME team is favored**, so the sign is added for the home
+side and subtracted for the away side. This is measured, not assumed: home score has RMSE 9.55
+against `total/2 + spread/2` and 11.64 against `total/2 − spread/2`, and `spread_line` correlates
++0.43 with home margin over 7,276 completed games. Getting this backwards would invert every
+implied total in the model, so `pipeline/checks.py::check_spread_orientation` asserts it on every
+build.
+
+The betting market prices team scoring environment better than any homegrown team model, so we
+anchor to it rather than competing with it.
+
+Two caveats the build handles explicitly rather than papering over:
+
+- **Only 112 of 272 2026 games have a posted line** at build time, and the playoff weeks the trade
+  evaluator weights double have none at all. `pipeline/market.py` fills the rest with a ridge
+  ratings model fit to the lines that do exist; held out on completed seasons it lands within
+  2.4–3.0 RMSE of the real line against a 3.5–4.0 naive baseline. Every week is tagged `src`
+  as `market` or `model` and the UI shows which.
+- **`roof` is null for 43 of the 272 games**, and every affected team (ARI, ATL, DAL, HOU, IND)
+  plays indoors. Defaulting those to `outdoors` would quietly cost the dome adjustment on exactly
+  the teams that need it, so the build falls back to the home stadium's prior-season roof.
 
 > **Blocked source note:** `datafield.dev` (the referenced Chapter 15, "Modeling the NFL") is
 > blocked by this environment's egress proxy and could not be read directly. The methodology

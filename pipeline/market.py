@@ -127,12 +127,30 @@ def implied_for(ratings: dict, team: str, opp: str, home: bool) -> float:
     return float(np.clip(v, *IMPLIED_CLAMP))
 
 
+def _roof_lookup(games: pd.DataFrame, season: int) -> dict:
+    """Home stadium roof by team from the prior season.
+
+    The 2026 feed leaves `roof` null for 43 games, and every team affected -- ARI, ATL,
+    DAL, HOU, IND -- plays indoors. Defaulting those to "outdoors" would drop the dome
+    adjustment on precisely the teams that earn it, which matters here because this
+    league pays field goals by distance and penalizes misses.
+    """
+    prev = games[(games["season"] == season - 1) & (games["game_type"] == "REG")]
+    out = {}
+    for team, grp in prev.groupby("home_team"):
+        mode = grp["roof"].dropna().mode()
+        if len(mode):
+            out[team] = str(mode.iloc[0])
+    return out
+
+
 def build_schedule(games: pd.DataFrame, season: int) -> tuple[dict, dict, dict]:
     """Per-team weekly schedule with implied totals, market where posted, model elsewhere.
 
     Returns (schedule_by_team, byes_by_team, coverage_stats).
     """
     ratings = fit_ratings(games, season)
+    roof_by_home = _roof_lookup(games, season)
     g = games[(games["season"] == season) & (games["game_type"] == "REG")].copy()
     g["week"] = pd.to_numeric(g["week"], errors="coerce")
     g["total_line"] = pd.to_numeric(g["total_line"], errors="coerce")
@@ -141,9 +159,14 @@ def build_schedule(games: pd.DataFrame, season: int) -> tuple[dict, dict, dict]:
     sched: dict[str, list] = {}
     seen: dict[str, set] = {}
     n_market = n_model = 0
+    n_roof_filled = 0
 
     for _, r in g.iterrows():
         wk = int(r["week"])
+        roof = r.get("roof")
+        if not isinstance(roof, str) or not roof:
+            roof = roof_by_home.get(r["home_team"], "outdoors")
+            n_roof_filled += 1
         posted = pd.notna(r["total_line"]) and pd.notna(r["spread_line"])
         if posted:
             home_imp = float(r["total_line"]) / 2 + float(r["spread_line"]) / 2
@@ -162,7 +185,7 @@ def build_schedule(games: pd.DataFrame, season: int) -> tuple[dict, dict, dict]:
                 "w": wk,
                 "opp": opp,
                 "home": is_home,
-                "roof": str(r.get("roof") or "outdoors"),
+                "roof": roof,
                 "implied": round(imp, 2),
                 "oppImplied": round(opp_imp, 2),
                 "total": round(imp + opp_imp, 2),
@@ -183,6 +206,7 @@ def build_schedule(games: pd.DataFrame, season: int) -> tuple[dict, dict, dict]:
         "team_games_market": n_market,
         "team_games_modeled": n_model,
         "market_share": round(n_market / max(1, n_market + n_model), 4),
+        "roof_filled_from_prior_season": n_roof_filled,
         "ratings_fit_games": ratings["n_fit_games"],
         "hfa": round(ratings["hfa"], 3),
         "method": ratings["method"],

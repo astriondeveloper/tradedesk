@@ -34,6 +34,12 @@ FANTASY_POS = ["QB", "RB", "WR", "TE", "K"]
 # Exponential recency weight on prior games. A half-life of 26 games means last season
 # carries roughly half the weight of this season -- slow enough to keep sample, fast
 # enough that a changed role shows up.
+#
+# Swept against the 2025 backtest at 4, 8, 14, 20, 26 and 34 games. The response is
+# almost flat -- MAE 2.661 / 2.651 / 2.640 / 2.629 / 2.628 / 2.636 -- with 26 the (barely)
+# best. Worth knowing WHY it is flat: once the consensus-rank blend is applied it supplies
+# most of the ordering, so the model's own hyperparameters have limited room to move the
+# result. Do not spend effort tuning these without first re-checking that conclusion.
 RECENCY_HALFLIFE_GAMES = 26.0
 
 # Shrinkage denominators for usage shares: share = (n*obs + k*prior) / (n + k).
