@@ -296,7 +296,13 @@ if (hasPicker > 0) {
   note(deltaBefore !== deltaAfter, 'marking a traded player out changes the verdict',
     `${deltaBefore} -> ${deltaAfter}`)
   const overrideNote = await page.locator('#verdict').textContent()
-  note(/manual status/.test(overrideNote || ''), 'the override is disclosed in the verdict')
+  note(/flows? through the numbers above/.test(overrideNote || ''),
+    'the override is disclosed in the verdict')
+  // Statuses have two sources and the verdict must not claim ESPN's designations as the
+  // user's own. With a seeded league and one hand-set player, both counts should appear.
+  note(/set by you/.test(overrideNote || '') && /from ESPN/.test(overrideNote || ''),
+    'and says which came from ESPN and which you set yourself',
+    (overrideNote || '').match(/\d+ from ESPN|\d+ set by you/g)?.join(', ') || '')
 }
 const staleShown = await page.locator('#verdict .stale').count()
 note(staleShown > 0, 'data age warning is shown with the verdict')

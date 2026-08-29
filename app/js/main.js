@@ -510,12 +510,30 @@ function renderTrade() {
   }
   html += '</div>'
 
+  // Statuses come from two places and the difference matters: the league file carries the
+  // designations ESPN showed when the rosters were transcribed, and anything else on this
+  // list you set yourself. Calling all of them "yours" would misreport where they came
+  // from; calling all of them data would hide that you can change any of them.
   const overridden = Object.keys(state.status).filter((id) => state.status[id] !== 'H')
   if (overridden.length) {
+    const fromLeague = new Map()
+    for (const t of LEAGUE?.rosters || []) for (const p of t.players) {
+      if (p.status) fromLeague.set(p.id, p.status)
+    }
+    const label = (id) => `${esc(byId.get(id)?.name || id)} (${STATUS_LABEL[state.status[id]]})`
+    const shipped = overridden.filter((id) => fromLeague.get(id) === state.status[id])
+    const yours = overridden.filter((id) => fromLeague.get(id) !== state.status[id])
     html += `<p class="note">${overridden.length} player${overridden.length === 1 ? '' : 's'} `
-      + `carrying a manual status: ${overridden.map((id) => esc(byId.get(id)?.name || id)
-        + ' (' + STATUS_LABEL[state.status[id]] + ')').join(', ')}. `
-      + 'Those availabilities are yours, not the data\'s, and they flow through every number above.</p>'
+      + 'carrying an availability that is not the pack\'s default, and every one of them flows '
+      + 'through the numbers above. '
+      + (shipped.length
+        ? `<b>${shipped.length} from ESPN</b>, as designated when these rosters were read for `
+          + `week ${LEAGUE?.asOfWeek}: ${shipped.map(label).join(', ')}. `
+        : '')
+      + (yours.length
+        ? `<b>${yours.length} set by you</b>: ${yours.map(label).join(', ')}. `
+        : '')
+      + 'Change any of them on the player\'s row.</p>'
   }
 
   if (v.sim?.A?.assumptions?.opponent) {
