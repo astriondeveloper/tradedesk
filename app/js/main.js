@@ -13,6 +13,8 @@ import { optimizeLineup, slotsFromCounts } from './lineup.js'
 import { replacementDetail } from './replacement.js'
 import { evaluateTrade, suggestFair, playerPPG, DEFAULT_LEAGUE } from './trade.js'
 import { draftBoard, detectRun, positionScarcity } from './draft.js'
+import { findTrades, marketValues } from './finder.js'
+import { parseEspnLeague, espnUrl } from './espn.js'
 
 const PACK = window.TD_PACK
 const DEMO = window.TD_DEMO || null
@@ -51,6 +53,11 @@ const state = {
     playoffWeight: DEFAULT_LEAGUE.playoffWeight,
   },
   draft: { taken: [], mine: [], pick: 1, next: 22, pos: '' },
+  // Manual availability overrides. This is the answer to breaking news the pack cannot
+  // know about: mark a player and every projection re-runs, with no network involved.
+  status: {},
+  espn: null,          // the imported league: teams, rosters, settings
+  finder: { untouchable: [], targets: [], maxGive: 2, maxGet: 2, opponent: 0, result: null },
   players: { q: '', pos: '', window: 'season', limit: 50, sort: 'pts', dir: -1, open: null },
 }
 
@@ -59,6 +66,7 @@ function save() {
     localStorage.setItem(STORE, JSON.stringify({
       nameA: state.nameA, nameB: state.nameB, A: state.A, B: state.B,
       cfg: state.cfg, league: state.league, draft: state.draft,
+      status: state.status, espn: state.espn,
     }))
   } catch (e) { /* private mode, quota, blocked storage: the session still works */ }
 }
@@ -76,20 +84,67 @@ function load() {
     if (s.cfg) state.cfg = s.cfg
     if (s.league) state.league = { ...state.league, ...s.league }
     if (s.draft) state.draft = { ...state.draft, ...s.draft }
+    if (s.status) state.status = s.status
+    if (s.espn) state.espn = s.espn
   } catch (e) { /* corrupt or unavailable storage: fall back to defaults */ }
 }
 
-const roster = (side) => state[side].map((id) => byId.get(id)).filter(Boolean)
+/**
+ * How a manual status changes a player's availability.
+ *
+ * Availability is what shapes a floor and what the reconciliation weights, so an override
+ * flows through every number in the app rather than being a cosmetic label. `OUT` is not
+ * set to zero: a player ruled out for a week is still on the roster for the rest of the
+ * season, and zeroing him would delete his whole remaining value.
+ */
+const STATUS_AVAIL = { H: null, Q: 0.62, OUT: 0.18, IR: 0.04 }
+const STATUS_LABEL = { H: 'Healthy', Q: 'Questionable', OUT: 'Out', IR: 'IR / season' }
+
+/** A player with any manual status applied. Never mutates the pack. */
+function withStatus(p) {
+  if (!p) return p
+  const s = state.status[p.id]
+  if (!s || s === 'H') return p
+  const mult = STATUS_AVAIL[s]
+  if (mult == null) return p
+  return { ...p, avail: mult, _status: s }
+}
+
+const roster = (side) => state[side].map((id) => withStatus(byId.get(id))).filter(Boolean)
 const ppg = (p, week = null) => playerPPG(p, state.cfg, week)
 
 /* ------------------------------------------------------------------ header */
 
+function dataAgeDays() {
+  const t = Date.parse(PACK.meta.generated)
+  if (!Number.isFinite(t)) return null
+  return Math.floor((Date.now() - t) / 86400000)
+}
+
 function renderStamp() {
   const m = PACK.meta
   const cov = m.marketCoverage || {}
+  const age = dataAgeDays()
+  const ageText = age == null ? '' : age <= 0 ? 'built today'
+    : age === 1 ? 'built yesterday' : `built ${age} days ago`
+  const stale = age != null && age > 7
   $('stamp').innerHTML =
-    `<b>${esc(m.season)} projections</b> · built ${esc((m.generated || '').slice(0, 10))}<br>`
+    `<b>${esc(m.season)} projections</b> · <span class="${stale ? 'down' : ''}">${esc(ageText)}</span><br>`
     + `${PACK.players.length} players · ${Math.round((cov.market_share || 0) * 100)}% of games have a posted line`
+}
+
+/** A standing warning about what the pack cannot know. */
+function staleBanner() {
+  const age = dataAgeDays()
+  if (age == null) return ''
+  const hard = age > 7
+  return `<div class="stale">
+    <b>This data is ${age === 0 ? 'from today' : `${age} day${age === 1 ? '' : 's'} old`} and does not update itself.</b>
+    Injury news, depth-chart changes and in-season trades after that date are not in here.
+    ${hard ? 'At this age, treat the projections as a starting point rather than current. ' : ''}
+    Rebuild it with <code>python3 pipeline/refresh.py</code>, or mark a player's status on
+    his row to flow a change through every number immediately.
+  </div>`
 }
 
 /* ------------------------------------------------------------------ rosters */
@@ -116,6 +171,21 @@ function renderRoster(side) {
         + `<div class="ppg">${f1(ppg(p))}</div>`
         + `<div class="vor ${cls(v)}">${sign(v)}${f1(v)}<span class="dim"> vor</span></div>`
         + '<button class="del" aria-label="Remove">×</button>'
+      const sub = row.querySelector('.sub')
+      const pick = el('select', 'statuspick')
+      pick.setAttribute('aria-label', `Injury status for ${p.name}`)
+      pick.setAttribute('data-s', state.status[p.id] || 'H')
+      for (const [k, label] of Object.entries(STATUS_LABEL)) {
+        const o = el('option'); o.value = k; o.textContent = label
+        if ((state.status[p.id] || 'H') === k) o.selected = true
+        pick.appendChild(o)
+      }
+      pick.onchange = () => {
+        if (pick.value === 'H') delete state.status[p.id]
+        else state.status[p.id] = pick.value
+        renderTrade()
+      }
+      sub.appendChild(pick)
       row.querySelector('.pill').onclick = () => {
         state.move[p.id] = !state.move[p.id]
         renderTrade()
@@ -216,7 +286,8 @@ function renderTrade() {
   const sendB = B.filter((p) => state.move[p.id])
 
   if (!A.length && !B.length) {
-    box.innerHTML = '<p class="empty">Add players to both rosters, then tap the arrows to build a trade.</p>'
+    box.innerHTML = staleBanner()
+      + '<p class="empty">Add players to both rosters, then tap the arrows to build a trade.</p>'
     save()
     return
   }
@@ -236,7 +307,7 @@ function renderTrade() {
   const h = v.headline
   const perWeek = h.perWeekA
 
-  let html = `<div class="headline">
+  let html = staleBanner() + `<div class="headline">
     <div>
       <span class="verdictword ${cls(perWeek)}">${esc(h.forA)} for you</span>
       <span class="big ${cls(perWeek)}">${sign(perWeek)}${f1(perWeek)}</span>
@@ -317,6 +388,14 @@ function renderTrade() {
     html += '</div>'
   }
   html += '</div>'
+
+  const overridden = Object.keys(state.status).filter((id) => state.status[id] !== 'H')
+  if (overridden.length) {
+    html += `<p class="note">${overridden.length} player${overridden.length === 1 ? '' : 's'} `
+      + `carrying a manual status: ${overridden.map((id) => esc(byId.get(id)?.name || id)
+        + ' (' + STATUS_LABEL[state.status[id]] + ')').join(', ')}. `
+      + 'Those availabilities are yours, not the data\'s, and they flow through every number above.</p>'
+  }
 
   if (v.sim?.A?.assumptions?.opponent) {
     // The simulation invents an opponent when none is supplied. Expected wins and playoff
@@ -804,9 +883,10 @@ function renderMethod() {
 function renderAll() {
   renderStamp()
   if (state.view === 'trade') renderTrade()
+  if (state.view === 'propose') renderPropose()
   if (state.view === 'players') renderPlayers()
   if (state.view === 'draft') renderDraft()
-  if (state.view === 'league') renderLeague()
+  if (state.view === 'league') { renderLeague(); renderEspnResult(null) }
   if (state.view === 'method') renderMethod()
 }
 
@@ -878,11 +958,19 @@ function init() {
     }
   })
 
+  wireEspn()
+  $('fRun').onclick = runFinder
+  $('fOpponent').addEventListener('change', () => { state.finder.targets = []; renderPropose() })
+  for (const id of ['fMaxGive', 'fMaxGet']) $(id).addEventListener('change', () => {})
+
   $('loadDemo').onclick = loadDemo
   $('clearTrade').onclick = () => { state.move = {}; renderTrade() }
   $('wipe').onclick = () => {
     state.A = []; state.B = []; state.move = {}
     state.draft = { taken: [], mine: [], pick: 1, next: 22, pos: '' }
+    state.status = {}
+    state.espn = null
+    state.finder = { untouchable: [], targets: [], maxGive: 2, maxGet: 2, opponent: 0, result: null }
     try { localStorage.removeItem(STORE) } catch (e) { /* nothing to clear */ }
     renderAll()
   }
@@ -937,3 +1025,278 @@ function init() {
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init)
 else init()
+
+/* ------------------------------------------------------------------ ESPN import */
+
+function renderEspnResult(r) {
+  const box = $('espnResult')
+  if (!r) { box.innerHTML = ''; return }
+  if (!r.ok) {
+    box.innerHTML = `<div class="flags"><div class="flag">${esc(r.error)}</div></div>`
+    return
+  }
+  const s = r.summary
+  let html = `<div class="flags"><div class="flag good">Imported <b>${esc(r.league.name)}</b>: `
+    + `${s.teams} teams, ${s.rostered} players matched, ${s.scoringRulesMapped} scoring rules read.`
+    + '</div>'
+  for (const w of r.warnings) html += `<div class="flag info">${esc(w)}</div>`
+  html += '</div>'
+
+  if (r.unsupported.length) {
+    html += '<p class="eyebrow" style="margin-top:12px"><b>Scoring rules not modelled</b></p>'
+      + '<div class="tablewrap"><table class="data"><thead><tr><th>Rule</th>'
+      + '<th class="r">Points</th><th>ESPN stat</th></tr></thead><tbody>'
+      + r.unsupported.map((u) => `<tr><td>${esc(u.label)}</td>`
+        + `<td class="n r">${esc(u.points)}</td><td class="dim">${u.statId}</td></tr>`).join('')
+      + '</tbody></table></div>'
+  }
+  if (r.unmatched.length) {
+    html += '<p class="eyebrow" style="margin-top:12px"><b>Players left off</b>'
+      + ' &nbsp;·&nbsp; add these by hand rather than let the app guess</p>'
+      + '<div class="tablewrap"><table class="data"><thead><tr><th>Player</th><th>Pos</th>'
+      + '<th>Team</th><th>Roster</th></tr></thead><tbody>'
+      + r.unmatched.slice(0, 25).map((u) => `<tr><td>${esc(u.name)}</td>`
+        + `<td><span class="pos" data-p="${esc(u.pos)}">${esc(u.pos)}</span></td>`
+        + `<td class="dim">${esc(u.proTeam)}</td><td class="dim">${esc(u.team)}</td></tr>`).join('')
+      + '</tbody></table></div>'
+  }
+
+  html += '<p class="eyebrow" style="margin-top:14px"><b>Pick your team</b></p>'
+    + '<div class="grid g2"><label class="fld"><span>Mine</span><select id="espnMine"></select></label>'
+    + '<label class="fld"><span>Load as "their team"</span><select id="espnTheirs"></select></label></div>'
+    + '<div style="margin-top:8px"><button class="btn solid" id="espnApply">Load these rosters</button></div>'
+  box.innerHTML = html
+
+  for (const id of ['espnMine', 'espnTheirs']) {
+    const sel = $(id)
+    r.teams.forEach((t, i) => {
+      const o = el('option')
+      o.value = String(i)
+      o.textContent = `${t.name} (${t.players.length})`
+      sel.appendChild(o)
+    })
+    if (id === 'espnTheirs' && r.teams.length > 1) sel.value = '1'
+  }
+  $('espnApply').onclick = () => {
+    const mine = r.teams[Number($('espnMine').value)]
+    const theirs = r.teams[Number($('espnTheirs').value)]
+    if (!mine || !theirs || mine === theirs) {
+      alert('Pick two different teams.')
+      return
+    }
+    state.A = mine.players.map((p) => p.id)
+    state.B = theirs.players.map((p) => p.id)
+    state.nameA = mine.name
+    state.nameB = theirs.name
+    state.move = {}
+    // ESPN's own injury flags are fresher than anything in the pack, so they seed the
+    // status overrides -- and are then yours to adjust.
+    for (const t of [mine, theirs]) {
+      for (const p of t.players) {
+        if (p.injuryStatus === 'OUT') state.status[p.id] = 'OUT'
+        else if (p.injuryStatus === 'QUESTIONABLE' || p.injuryStatus === 'DOUBTFUL') state.status[p.id] = 'Q'
+        else if (p.injuryStatus === 'INJURY_RESERVE') state.status[p.id] = 'IR'
+      }
+    }
+    if (r.cfg) state.cfg = r.cfg
+    if (r.slots) state.league.slots = { ...state.league.slots, ...r.slots }
+    if (r.league.teams) state.league.teams = r.league.teams
+    if (r.league.playoffWeeks) state.league.playoffWeeks = r.league.playoffWeeks
+    replKey = ''
+    $('nameA').value = state.nameA
+    $('nameB').value = state.nameB
+    save()
+    show('trade')
+  }
+}
+
+function wireEspn() {
+  $('espnMakeUrl').onclick = () => {
+    const id = $('espnId').value.trim()
+    if (!id) { alert('Enter your league id. It is the number in your ESPN league URL.'); return }
+    const url = espnUrl(id, $('espnYear').value)
+    $('espnUrl').textContent = url
+    $('espnOpen').href = url
+    $('espnUrlBox').hidden = false
+  }
+  $('espnCopy').onclick = async () => {
+    try {
+      await navigator.clipboard.writeText($('espnUrl').textContent)
+      $('espnCopy').textContent = 'Copied'
+      setTimeout(() => { $('espnCopy').textContent = 'Copy' }, 1500)
+    } catch (e) {
+      // Clipboard access is refused in plenty of contexts; the text is on screen to select.
+      $('espnCopy').textContent = 'Select it above'
+    }
+  }
+  $('espnImport').onclick = () => {
+    const raw = $('espnPaste').value
+    if (!raw.trim()) { alert('Paste the ESPN response first.'); return }
+    const r = parseEspnLeague(raw, PACK)
+    state.espn = r.ok ? { league: r.league, teams: r.teams } : null
+    renderEspnResult(r)
+    save()
+  }
+  $('espnClear').onclick = () => {
+    $('espnPaste').value = ''
+    state.espn = null
+    renderEspnResult(null)
+    save()
+  }
+}
+
+/* ------------------------------------------------------------------ propose */
+
+function renderPropose() {
+  const mine = roster('A')
+  const sel = $('fOpponent')
+  const prev = sel.value
+  sel.innerHTML = ''
+
+  // Every other team from the imported league, plus whatever is in the manual "their team".
+  const options = []
+  if (state.espn?.teams?.length) {
+    state.espn.teams.forEach((t, i) => {
+      const ids = t.players.map((p) => p.id)
+      const overlap = ids.filter((id) => state.A.includes(id)).length
+      if (overlap > ids.length * 0.6) return  // that is my own team
+      options.push({ label: `${t.name} (ESPN)`, players: ids })
+    })
+  }
+  if (state.B.length) options.push({ label: `${state.nameB} (manual)`, players: [...state.B] })
+
+  options.forEach((o, i) => {
+    const opt = el('option'); opt.value = String(i); opt.textContent = o.label
+    sel.appendChild(opt)
+  })
+  if (prev && sel.querySelector(`option[value="${prev}"]`)) sel.value = prev
+  state.finder._options = options
+
+  const chips = (host, list, key) => {
+    const box = $(host)
+    box.innerHTML = ''
+    for (const p of list) {
+      const b = el('button', 'chip')
+      b.textContent = `${p.name} ${p.pos}`
+      const on = state.finder[key].includes(p.id)
+      b.setAttribute('aria-pressed', String(on))
+      b.onclick = () => {
+        const arr = state.finder[key]
+        const i = arr.indexOf(p.id)
+        if (i >= 0) arr.splice(i, 1); else arr.push(p.id)
+        renderPropose()
+      }
+      box.appendChild(b)
+    }
+    if (!list.length) box.innerHTML = '<span class="dim" style="font-size:12px">Nothing loaded yet.</span>'
+  }
+  chips('fUntouchable', mine, 'untouchable')
+  const opp = options[Number(sel.value) || 0]
+  const theirs = (opp?.players || []).map((id) => withStatus(byId.get(id))).filter(Boolean)
+  chips('fTargets', theirs, 'targets')
+
+  if (state.finder.result) renderProposals(state.finder.result)
+}
+
+function renderProposals(r) {
+  const box = $('fResults')
+  const n = PACK.meta.regSeasonWeeks || 18
+  let html = `<div class="panel"><p class="eyebrow"><b>Results</b> &nbsp;·&nbsp; `
+    + `${r.screened.toLocaleString()} packages screened, ${r.evaluated} evaluated exactly `
+    + `in ${(r.elapsedMs / 1000).toFixed(1)}s</p>`
+
+  for (const note of r.notes) html += `<div class="flags"><div class="flag info">${esc(note)}</div></div>`
+
+  const render = (list, title, sub) => {
+    if (!list.length) return ''
+    let h = `<p class="eyebrow" style="margin-top:14px"><b>${esc(title)}</b> &nbsp;·&nbsp; ${esc(sub)}</p>`
+    list.slice(0, 6).forEach((c, i) => {
+      const pct = Math.round(c.acceptance.score * 100)
+      const meterCls = pct >= 65 ? '' : pct >= 45 ? 'mid' : 'low'
+      h += `<div class="proposal${i === 0 && title[0] === 'W' ? ' top' : ''}">
+        <div class="deal">
+          <div class="give"><span class="lab">You send</span>${c.give.map((p) =>
+            `<span>${esc(p.name)} <span class="pos" data-p="${p.pos}">${p.pos}</span></span>`).join('')}</div>
+          <div class="arrow">⇄</div>
+          <div class="get"><span class="lab">You get</span>${c.get.map((p) =>
+            `<span>${esc(p.name)} <span class="pos" data-p="${p.pos}">${p.pos}</span></span>`).join('')}</div>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="k">Your starters</div>
+            <div class="v ${cls(c.myDelta)}">${sign(c.myPerWeek)}${f1(c.myPerWeek)}/wk</div>
+            <div class="n">${sign(c.myDelta)}${f1(c.myDelta)} over the season</div></div>
+          <div class="stat"><div class="k">Playoff weeks</div>
+            <div class="v ${cls(c.myPlayoffDelta)}">${sign(c.myPlayoffDelta)}${f1(c.myPlayoffDelta)}</div></div>
+          <div class="stat"><div class="k">They perceive</div>
+            <div class="v ${cls(c.marketDelta.them)}">${sign(c.marketDelta.them)}${f1(c.marketDelta.them)}</div>
+            <div class="n">on name value</div></div>
+          <div class="stat"><div class="k">Truly worth to them</div>
+            <div class="v ${cls(c.theirDelta)}">${sign(c.theirDelta)}${f1(c.theirDelta)}</div></div>
+          <div class="stat"><div class="k">Fits their lineup</div>
+            <div class="v">${Math.round(c.acceptance.fit * 100)}%</div></div>
+          <div class="stat"><div class="k">Would they accept</div>
+            <div class="v">${pct}%</div>
+            <div class="meter ${meterCls}"><i style="width:${pct}%"></i></div></div>
+        </div>
+        <p class="note" style="margin-top:8px">${esc(c.acceptance.read)}</p>
+        <button class="btn" data-load="${i}" data-kind="${title[0]}">Open this in the trade view</button>
+      </div>`
+    })
+    return h
+  }
+
+  html += render(r.proposable, 'Worth sending', 'prices out fair to them, gains you real points')
+  html += render(r.longshots, 'Longshots', 'better for you, but they will likely refuse')
+  html += '</div>'
+  box.innerHTML = html
+
+  box.querySelectorAll('[data-load]').forEach((b) => {
+    b.onclick = () => {
+      const list = b.getAttribute('data-kind') === 'W' ? r.proposable : r.longshots
+      const c = list[Number(b.getAttribute('data-load'))]
+      if (!c) return
+      const opp = state.finder._options[Number($('fOpponent').value) || 0]
+      state.B = [...(opp?.players || [])]
+      state.nameB = (opp?.label || 'Their team').replace(/ \((ESPN|manual)\)$/, '')
+      $('nameB').value = state.nameB
+      state.move = {}
+      for (const p of c.give) state.move[p.id] = true
+      for (const p of c.get) state.move[p.id] = true
+      show('trade')
+    }
+  })
+}
+
+function runFinder() {
+  const opp = state.finder._options?.[Number($('fOpponent').value) || 0]
+  if (!opp) { alert('Load a league or a second roster first.'); return }
+  const mine = roster('A')
+  const theirs = opp.players.map((id) => withStatus(byId.get(id))).filter(Boolean)
+  if (!mine.length || !theirs.length) { alert('Both rosters need players.'); return }
+
+  const btn = $('fRun')
+  btn.textContent = 'Searching…'
+  btn.disabled = true
+  // Deferred so the button repaints before the search blocks the thread.
+  setTimeout(() => {
+    const maxGive = parseInt($('fMaxGive').value, 10) || 2
+    const maxGet = parseInt($('fMaxGet').value, 10) || 2
+    const shapes = []
+    for (let g = 1; g <= maxGive; g++) for (let k = 1; k <= maxGet; k++) shapes.push([g, k])
+    try {
+      state.finder.result = findTrades({
+        myRoster: mine, theirRoster: theirs, pack: PACK, cfg: state.cfg, league: state.league,
+        opts: {
+          shapes,
+          untouchable: new Set(state.finder.untouchable),
+          targets: new Set(state.finder.targets),
+          maxMs: 9000,
+        },
+      })
+      renderProposals(state.finder.result)
+    } finally {
+      btn.textContent = 'Search'
+      btn.disabled = false
+    }
+  }, 30)
+}

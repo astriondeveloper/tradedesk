@@ -134,6 +134,118 @@ console.log(`         full PPR top: ${beforeTop.slice(0, 3).join(', ')}`)
 console.log(`         standard top: ${afterTop.slice(0, 3).join(', ')}`)
 await page.screenshot({ path: join(SHOTS, 'desktop-league.png'), fullPage: true })
 
+// --- propose: the trade finder ---
+await page.locator('nav.tabs button[data-view="propose"]').click()
+await page.waitForTimeout(900)
+const oppCount = await page.locator('#fOpponent option').count()
+note(oppCount > 0, 'propose tab offers an opponent', `${oppCount} option(s)`)
+await page.locator('#fRun').click()
+await page.waitForTimeout(14000)
+const proposals = await page.locator('#fResults .proposal').count()
+const resultText = await page.locator('#fResults').textContent()
+note(proposals > 0 || /screened/.test(resultText || ''), 'the finder returns results',
+  `${proposals} proposal card(s)`)
+note(!/NaN|undefined/.test(resultText || ''), 'no NaN in the proposals',
+  (resultText || '').match(/NaN|undefined/g)?.slice(0, 2).join(',') || '')
+if (proposals > 0) {
+  const accept = await page.locator('#fResults .proposal .meter i').first().getAttribute('style')
+  note(/width:\s*\d+%/.test(accept || ''), 'acceptance meter renders', accept || '')
+}
+await page.screenshot({ path: join(SHOTS, 'desktop-propose.png'), fullPage: true })
+
+// --- ESPN import ---
+await page.locator('nav.tabs button[data-view="league"]').click()
+await page.waitForTimeout(700)
+await page.fill('#espnId', '1234567')
+await page.locator('#espnMakeUrl').click()
+await page.waitForTimeout(300)
+const urlText = await page.locator('#espnUrl').textContent()
+note(/leagues\/1234567\?/.test(urlText || '') && /view=mRoster/.test(urlText || ''),
+  'ESPN link builder produces the right URL')
+
+// Paste a realistic payload built from the page's own pack, so names really match.
+const espnOk = await page.evaluate(() => {
+  const pack = window.TD_PACK
+  const P = (pos, n, o = 0) => pack.players.filter((p) => p.pos === pos && (p.mu || p.kWeeks || p.dstWeeks)).slice(o, o + n)
+  const posId = { QB: 1, RB: 2, WR: 3, TE: 4, K: 5, DST: 16 }
+  const ent = (p, slot) => ({ lineupSlotId: slot, playerPoolEntry: { player: {
+    id: 1, fullName: p.name, defaultPositionId: posId[p.pos], proTeamId: 12, injuryStatus: 'ACTIVE' } } })
+  const team = (o) => [...P('QB', 1, o).map((p) => ent(p, 0)), ...P('RB', 3, o * 3).map((p) => ent(p, 2)),
+    ...P('WR', 3, o * 3).map((p) => ent(p, 4)), ...P('TE', 1, o).map((p) => ent(p, 6)),
+    ...P('K', 1, o).map((p) => ent(p, 17)), ...P('DST', 1, o).map((p) => ent(p, 16))]
+  const payload = {
+    id: 999, settings: {
+      name: 'Verification League', size: 10,
+      rosterSettings: { lineupSlotCounts: { 0: 1, 2: 2, 4: 2, 6: 1, 23: 1, 16: 1, 17: 1, 20: 6 } },
+      scheduleSettings: { matchupPeriodCount: 14, playoffTeamCount: 6 },
+      scoringSettings: { scoringItems: [
+        { statId: 3, points: 0.04 }, { statId: 4, points: 4 }, { statId: 20, points: -2 },
+        { statId: 24, points: 0.1 }, { statId: 25, points: 6 }, { statId: 42, points: 0.1 },
+        { statId: 43, points: 6 }, { statId: 53, points: 0.5 }, { statId: 72, points: -2 }] },
+    },
+    teams: [
+      { id: 1, location: 'Alpha', nickname: 'Ones', roster: { entries: team(0) } },
+      { id: 2, location: 'Beta', nickname: 'Twos', roster: { entries: team(1) } },
+    ],
+  }
+  const ta = document.getElementById('espnPaste')
+  ta.value = JSON.stringify(payload)
+  return true
+})
+note(espnOk, 'built an ESPN payload from the page\'s own data')
+await page.locator('#espnImport').click()
+await page.waitForTimeout(1500)
+const importText = await page.locator('#espnResult').textContent()
+note(/Imported/.test(importText || ''), 'ESPN payload imports', (importText || '').slice(0, 90))
+note(/Verification League/.test(importText || ''), 'league name read from the payload')
+const teamPicker = await page.locator('#espnMine option').count()
+note(teamPicker >= 2, 'team picker populated', `${teamPicker} teams`)
+await page.screenshot({ path: join(SHOTS, 'desktop-espn.png'), fullPage: true })
+
+// Applying the import must change the scoring to that league's (half PPR here).
+await page.selectOption('#espnMine', '0')
+await page.selectOption('#espnTheirs', '1')
+await page.locator('#espnApply').click()
+await page.waitForTimeout(3000)
+const recVal = await page.evaluate(() => {
+  const tab = [...document.querySelectorAll('nav.tabs button')].find((b) => b.dataset.view === 'league')
+  tab.click()
+  return null
+})
+await page.waitForTimeout(900)
+const perRec = await page.evaluate(() => {
+  const labels = [...document.querySelectorAll('#rushGrid label.fld')]
+  const hit = labels.find((l) => /per reception/i.test(l.querySelector('span').textContent))
+  return hit ? hit.querySelector('input').value : null
+})
+note(perRec === '0.5', 'imported scoring replaced the defaults', `per reception = ${perRec}`)
+
+// --- status override changes the numbers ---
+await page.locator('nav.tabs button[data-view="trade"]').click()
+await page.waitForTimeout(2000)
+const before = await page.locator('#rowsA .row .ppg').first().textContent()
+const hasPicker = await page.locator('#rowsA .statuspick').count()
+note(hasPicker > 0, 'every roster row carries a status control', `${hasPicker} controls`)
+if (hasPicker > 0) {
+  await page.locator('#rowsA .row .pill').first().click()
+  await page.locator('#rowsB .row .pill').first().click()
+  await page.waitForTimeout(2500)
+  const deltaBefore = await page.locator('#verdict .big').textContent()
+  // Mark the player who is actually IN the trade. Marking a bench player out correctly
+  // leaves the DELTA alone -- it lowers the before and the after by the same amount --
+  // so the first version of this check was asserting the wrong thing.
+  const movedRow = await page.locator('#rowsA .row.on').first()
+  await movedRow.locator('.statuspick').selectOption('OUT')
+  await page.waitForTimeout(3000)
+  const deltaAfter = await page.locator('#verdict .big').textContent()
+  note(deltaBefore !== deltaAfter, 'marking a traded player out changes the verdict',
+    `${deltaBefore} -> ${deltaAfter}`)
+  const overrideNote = await page.locator('#verdict').textContent()
+  note(/manual status/.test(overrideNote || ''), 'the override is disclosed in the verdict')
+}
+const staleShown = await page.locator('#verdict .stale').count()
+note(staleShown > 0, 'data age warning is shown with the verdict')
+
 // --- method tab ---------------------------------------------------------------
 await page.locator('nav.tabs button[data-view="method"]').click()
 await page.waitForTimeout(600)

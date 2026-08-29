@@ -96,7 +96,20 @@ export function playerPPG(player, cfg = DEFAULT_SCORING, week = null) {
   return scoreLine(player.mu || {}, cfg, player.pos)
 }
 
-/** Week-specific points, applying that week's schedule and opponent adjustment. */
+/**
+ * Week-specific points, applying that week's schedule, opponent, and availability.
+ *
+ * AVAILABILITY BELONGS HERE, and leaving it out was a real hole. `mu` is per game PLAYED,
+ * so a player who misses a fifth of the season is not worth his per-game number across a
+ * season ledger -- he is worth roughly four fifths of it, with the rest falling to whoever
+ * starts in his place. Without this the deterministic ledger quietly assumed every player
+ * was available every week; injury risk existed only inside the Monte Carlo, and a manual
+ * "he's out" changed nothing at all on screen.
+ *
+ * Scaling by availability also lets the lineup solver make the right call on its own: a
+ * 90%-available 15-point player outranks a 60%-available 18-point one, which is the
+ * comparison a manager is actually making when he plans a season.
+ */
 function weekPPG(player, week, cfg, pack, cache) {
   const key = `${player.id}|${week}`
   const hit = cache.get(key)
@@ -126,6 +139,10 @@ function weekPPG(player, week, cfg, pack, cache) {
       v = scoreLine(scaled, cfg, player.pos) * dvp
     }
   }
+  // Expected points for the week, not points if he plays. A D/ST never misses a game, so
+  // it is exempt; everyone else is scaled by his probability of being available.
+  const avail = player.pos === 'DST' ? 1 : Math.max(0, Math.min(1, num(player.avail, 0.9)))
+  v *= avail
   cache.set(key, v)
   return v
 }

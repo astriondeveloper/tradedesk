@@ -18,6 +18,7 @@
 
 <nav class="tabs" role="tablist">
   <button role="tab" data-view="trade" aria-selected="true">Trade</button>
+  <button role="tab" data-view="propose" aria-selected="false">Propose</button>
   <button role="tab" data-view="players" aria-selected="false">Players</button>
   <button role="tab" data-view="draft" aria-selected="false">Draft</button>
   <button role="tab" data-view="league" aria-selected="false">League</button>
@@ -67,6 +68,40 @@
     </p>
     <div id="verdict"></div>
   </div>
+</section>
+
+<!-- ------------------------------------------------------------------ PROPOSE -->
+<section class="view" id="view-propose" hidden>
+  <div class="panel">
+    <p class="eyebrow"><b>Find a trade worth sending</b> &nbsp;·&nbsp; searched both ways</p>
+    <p class="note" style="margin-top:0">
+      Every package is valued twice: what it is actually worth to each roster, and what each
+      side will <em>perceive</em> it as worth from consensus rank. The deal you want is one
+      that prices out even on names and is not even at all once your bench is accounted for.
+      That gap exists because consensus rank cannot see your roster.
+    </p>
+    <div class="grid g4" style="margin:12px 0">
+      <label class="fld"><span>Trade with</span><select id="fOpponent"></select></label>
+      <label class="fld"><span>Most I will give</span>
+        <select id="fMaxGive"><option>1</option><option selected>2</option><option>3</option></select>
+      </label>
+      <label class="fld"><span>Most I will take</span>
+        <select id="fMaxGet"><option>1</option><option selected>2</option><option>3</option></select>
+      </label>
+      <label class="fld"><span>&nbsp;</span><button class="btn solid" id="fRun">Search</button></label>
+    </div>
+    <div class="grid g2">
+      <div>
+        <p class="eyebrow"><b>Off limits</b> &nbsp;·&nbsp; never offer these</p>
+        <div id="fUntouchable" class="chiprow"></div>
+      </div>
+      <div>
+        <p class="eyebrow"><b>Targets</b> &nbsp;·&nbsp; only ask for these (optional)</p>
+        <div id="fTargets" class="chiprow"></div>
+      </div>
+    </div>
+  </div>
+  <div id="fResults"></div>
 </section>
 
 <!-- ------------------------------------------------------------------ PLAYERS -->
@@ -134,6 +169,33 @@
 
 <!-- ------------------------------------------------------------------ LEAGUE -->
 <section class="view" id="view-league" hidden>
+  <div class="panel">
+    <p class="eyebrow"><b>Import your ESPN league</b> &nbsp;·&nbsp; rosters, scoring and slots</p>
+    <p class="note" style="margin-top:0">
+      This app cannot call ESPN, and that is deliberate: a private league needs your
+      <code>espn_s2</code> and <code>SWID</code> cookies, and you should not hand those to a
+      web page. Your browser already has them. Open the link below while logged in, copy what
+      ESPN returns, and paste it here. Nothing leaves your machine.
+    </p>
+    <div class="grid g3" style="margin:12px 0">
+      <label class="fld"><span>League ID</span><input id="espnId" placeholder="from your ESPN URL" inputmode="numeric"></label>
+      <label class="fld"><span>Season</span><input id="espnYear" type="number" value="2026"></label>
+      <label class="fld"><span>&nbsp;</span><button class="btn" id="espnMakeUrl">Build the link</button></label>
+    </div>
+    <div id="espnUrlBox" hidden>
+      <p class="eyebrow"><b>1.</b> Open this in a tab where you are logged into ESPN</p>
+      <div class="urlrow"><code id="espnUrl"></code><button class="btn" id="espnCopy">Copy</button>
+        <a id="espnOpen" class="btn" target="_blank" rel="noopener">Open</a></div>
+      <p class="eyebrow" style="margin-top:14px"><b>2.</b> Select all of it, and paste it here</p>
+    </div>
+    <textarea id="espnPaste" rows="4" placeholder="Paste the ESPN response here"></textarea>
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn solid" id="espnImport">Import league</button>
+      <button class="btn ghost" id="espnClear">Clear</button>
+    </div>
+    <div id="espnResult"></div>
+  </div>
+
   <div class="panel">
     <p class="eyebrow"><b>Scoring</b> &nbsp;·&nbsp; every field re-derives the whole app</p>
     <div class="grid g4" style="margin-bottom:14px">

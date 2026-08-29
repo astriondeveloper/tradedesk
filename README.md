@@ -48,6 +48,56 @@ so a trade that raises the mean while lowering the floor says so.
 
 ---
 
+## Bringing in your real ESPN league
+
+Paste, not fetch, and deliberately so. A private league needs your `espn_s2` and `SWID`
+cookies, and a tool that asks for those is a tool you should not use. Your browser already
+has them.
+
+1. On the **League** tab, enter your league id (the number in your ESPN URL) and press
+   **Build the link**.
+2. Open that link in a tab where you are logged into ESPN.
+3. Select all of it and paste it back.
+
+What comes across: every team's roster, your exact scoring rules, your starting slots, your
+playoff weeks, and ESPN's current injury designations. Scoring is mapped from ESPN's own
+published stat ids rather than guessed — and anything the app cannot model is **listed with
+its point value** instead of quietly dropped, so you can judge whether it matters. Players
+ESPN has that the pack does not are listed too, never silently matched to someone else.
+
+One thing this settled: the D/ST tier boundaries the app previously carried as *inferred*
+turn out to match ESPN's own definitions exactly (0 / 1-6 / 7-13 / 14-17 / 18-21 / 22-27 /
+28-34 / 35-45 / 46+, and <100 / 100-199 / … / 550+). They are no longer a guess.
+
+## Finding a trade worth sending
+
+The **Propose** tab answers the question the trade evaluator cannot: *what should I actually
+offer this person?*
+
+Every package is valued **twice** —
+
+- **Model value:** what it is really worth to each roster, from the week-by-week starter
+  math with byes, playoff weeks and replacement level.
+- **Market value:** what each side will *perceive* it as worth, from consensus rank measured
+  over replacement so it is comparable.
+
+The deal you want is one that prices out even on names and is not even at all once your
+bench is accounted for. On two complementary rosters the top result is *give McCaffrey and
+Gibbs, get Chase, Higgins and Pitts*: worth **+9.5 points a week** to the back-heavy side
+while the other side perceives it as a **small gain for themselves**, because consensus rank
+cannot see that the backs being sent were the third and fourth on a roster that starts two.
+
+Each candidate reports a **would-they-accept** score built from perceived value (which
+dominates), how well the incoming players fit their lineup, and true value (a minor term,
+because they cannot see it). Deals split into **worth sending** and **longshots**, and when
+nothing clears the bar the app says so rather than manufacturing something.
+
+Search notes: roughly 37,000 packages get screened on per-player marginal values, then a
+stratified shortlist — sampled across bands of perceived fairness, not just by what helps
+you most — gets a full exact evaluation. Sampling by strata matters: ranking on your own
+gain alone fills the shortlist with mild fleeces and never evaluates the balanced deals at
+all.
+
 ## The league it defaults to
 
 Full PPR, exactly as configured:
@@ -143,6 +193,30 @@ The model wins MAE at every position. Two things to read honestly:
 
 ---
 
+## Does it stay current?
+
+**No, not by itself, and that is a design choice.** The app ships a static data pack and
+makes no network calls at runtime, so it works offline, holds no credentials, and cannot
+break because a feed changed. The cost is that it knows nothing that happened after it was
+built.
+
+Three ways to deal with that, in order of effort:
+
+1. **Mark a status on the player's row.** Healthy / Questionable / Out / IR. This flows
+   through availability into every projection, lineup, and trade verdict immediately, needs
+   no network, and is the right tool for news that broke an hour ago. It is disclosed in the
+   verdict so a changed number is never unexplained.
+2. **Re-run `python3 pipeline/refresh.py`.** About a minute. Re-fetches only what moves —
+   injury reports, the consensus board, depth charts, rosters, last week's box scores, and
+   newly posted betting lines — then rebuilds the pack, the demo and the bundle. Seven
+   seasons of play-by-play do not change and are left alone. Tuesday or Wednesday is the
+   right time, after the injury reports land.
+3. **Import your ESPN league again.** ESPN's own injury designations come across with the
+   rosters and seed the status overrides.
+
+The app shows its data age in the header and repeats it above every verdict, turning red
+past a week. It will not let you forget how old the numbers are.
+
 ## Limitations
 
 Stated plainly, because a projection tool that hides these is worse than no tool.
@@ -156,6 +230,9 @@ Stated plainly, because a projection tool that hides these is worse than no tool
 - **Preseason depth charts rank whoever takes the most preseason snaps**, which puts camp
   bodies above starters. Players absent from the consensus board are pushed down to compensate,
   but a genuine late-summer job change may still be mispriced.
+- **The acceptance score is a judgement, not a probability.** It is calibrated on
+  reasoning about how managers value trades, not on a dataset of accepted and rejected
+  offers, because no such dataset exists here. Treat it as a ranking, not a forecast.
 - **Expected wins and playoff odds assume an opponent.** With none supplied the simulation
   mirrors your own roster and says so on screen.
 - **Two source feeds disagree** about a handful of veterans (Diggs, Keenan Allen, Najee Harris
@@ -181,6 +258,7 @@ pipeline/          Python. Fetches, models, and compiles the data pack.
   backtest.py      out-of-sample evaluation
   sanity.py        face-validity leaderboards
   demo_league.py   generates the demo rosters
+  refresh.py       re-fetch what moves, rebuild everything
 
 app/js/            The engines. Plain ES modules, no dependencies.
   scoring.js       components -> points, any format
@@ -190,6 +268,8 @@ app/js/            The engines. Plain ES modules, no dependencies.
   sim.js           correlated Monte Carlo
   trade.js         the trade evaluator
   draft.js         live draft board
+  espn.js          ESPN league import
+  finder.js        trade search + acceptance model
   main.js          UI
 
 scripts/
@@ -202,7 +282,7 @@ scripts/
 ## Running it
 
 ```bash
-npm test                          # 242 tests
+npm test                          # 275 tests
 node scripts/bundle.mjs           # build dist/tradedesk.html
 node scripts/verify-browser.mjs   # end-to-end in a real browser
 node scripts/thesis.mjs           # the three claims, checked against real projections
@@ -212,6 +292,7 @@ python3 pipeline/sources.py       # fetch source data (~460MB, cached)
 python3 pipeline/calibrate.py     # refit team coefficients
 python3 pipeline/build_pack.py    # rebuild app/data/pack.js
 python3 pipeline/backtest.py --season 2025
+python3 pipeline/refresh.py       # weekly: refresh volatile data and rebuild
 ```
 
 Rebuilding the pack needs Python 3.11 with pandas, numpy and pyarrow. The app itself needs
