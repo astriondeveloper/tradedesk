@@ -1230,6 +1230,33 @@ export function simPlayerWeek(player, week, cfg, pack, rng, n) {
   // Share of draws that produced a non-zero score. Below `avail` by however often an active
   // player happened to score exactly nothing.
   out.playRate = draws > 0 ? r4(played / draws) : 0;
+
+  // The quantiles above fold the availability coin into the distribution, which is correct
+  // but makes the FLOOR useless for comparing players: any player below about 90%
+  // availability has a tenth percentile of exactly zero, so 38 of 40 ranked skill players
+  // report the same floor and the column stops discriminating.
+  //
+  // So the conditional distribution is reported alongside it. `active.p10` is the floor of
+  // a week he actually plays -- the number a manager is choosing between -- while
+  // `missRisk` carries the injury component separately instead of hiding inside it. Show
+  // both; do not average them.
+  if (played > 0) {
+    const alive = new Float64Array(played);
+    let k = 0;
+    for (let i = 0; i < draws; i++) if (samples[i] > 0) alive[k++] = samples[i];
+    alive.sort();
+    out.active = {
+      n: played,
+      mean: r4(alive.reduce((s, v) => s + v, 0) / played),
+      p10: r4(quantile(alive, 0.10)),
+      p50: r4(quantile(alive, 0.50)),
+      p90: r4(quantile(alive, 0.90)),
+    };
+  } else {
+    out.active = { n: 0, mean: 0, p10: 0, p50: 0, p90: 0 };
+  }
+  out.missRisk = r4(1 - out.playRate);
+
   out.note = plan.note;
   if (keep) out.samples = samples;
   return out;

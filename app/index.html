@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trade Desk</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div>
+    <h1>Trade <span>Desk</span></h1>
+  </div>
+  <div class="stamp" id="stamp"></div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" data-view="trade" aria-selected="true">Trade</button>
+  <button role="tab" data-view="players" aria-selected="false">Players</button>
+  <button role="tab" data-view="draft" aria-selected="false">Draft</button>
+  <button role="tab" data-view="league" aria-selected="false">League</button>
+  <button role="tab" data-view="method" aria-selected="false">How this works</button>
+</nav>
+
+<!-- ------------------------------------------------------------------ TRADE -->
+<section class="view" id="view-trade">
+  <div class="teams">
+    <div class="panel">
+      <p class="eyebrow"><b>Your team</b><span class="spacer"></span><span id="capA" class="dim"></span></p>
+      <input class="teamname" id="nameA" value="My team" aria-label="Your team name">
+      <div class="rows" id="rowsA"></div>
+      <div class="search" style="margin-top:10px">
+        <input id="searchA" placeholder="Add a player by name" autocomplete="off" aria-label="Add a player to your team">
+        <div class="results" id="resA" hidden></div>
+      </div>
+      <button class="link" data-paste="A">Paste a list instead</button>
+      <div id="pasteA" hidden>
+        <textarea id="ptA" rows="4" placeholder="One name per line"></textarea>
+        <button class="btn" data-import="A">Import</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <p class="eyebrow"><b>Their team</b><span class="spacer"></span><span id="capB" class="dim"></span></p>
+      <input class="teamname" id="nameB" value="Their team" aria-label="Their team name">
+      <div class="rows" id="rowsB"></div>
+      <div class="search" style="margin-top:10px">
+        <input id="searchB" placeholder="Add a player by name" autocomplete="off" aria-label="Add a player to their team">
+        <div class="results" id="resB" hidden></div>
+      </div>
+      <button class="link" data-paste="B">Paste a list instead</button>
+      <div id="pasteB" hidden>
+        <textarea id="ptB" rows="4" placeholder="One name per line"></textarea>
+        <button class="btn" data-import="B">Import</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <p class="eyebrow">
+      <b>The trade</b> &nbsp;·&nbsp; tap the arrow on any player to move them
+      <span class="spacer"></span>
+      <button class="link" id="loadDemo">Load a demo league</button>
+      <button class="link" id="clearTrade">Clear</button>
+    </p>
+    <div id="verdict"></div>
+  </div>
+</section>
+
+<!-- ------------------------------------------------------------------ PLAYERS -->
+<section class="view" id="view-players" hidden>
+  <div class="panel">
+    <p class="eyebrow"><b>Projections</b> &nbsp;·&nbsp; <span id="playerCount"></span> players, scored under your league</p>
+    <div class="grid g4" style="margin-bottom:12px">
+      <label class="fld"><span>Search</span><input id="pSearch" placeholder="name or team" autocomplete="off"></label>
+      <label class="fld"><span>Position</span>
+        <select id="pPos">
+          <option value="">All</option><option>QB</option><option>RB</option><option>WR</option>
+          <option>TE</option><option>K</option><option>DST</option>
+        </select>
+      </label>
+      <label class="fld"><span>Window</span>
+        <select id="pWindow">
+          <option value="season">Full season</option>
+          <option value="ros">Rest of season</option>
+          <option value="playoff">Playoff weeks only</option>
+        </select>
+      </label>
+      <label class="fld"><span>Show</span>
+        <select id="pLimit"><option>50</option><option>150</option><option>400</option><option value="9999">All</option></select>
+      </label>
+    </div>
+    <div class="tablewrap">
+      <table class="data" id="pTable">
+        <thead><tr id="pHead"></tr></thead>
+        <tbody id="pBody"></tbody>
+      </table>
+    </div>
+    <div id="pDetail"></div>
+  </div>
+</section>
+
+<!-- ------------------------------------------------------------------ DRAFT -->
+<section class="view" id="view-draft" hidden>
+  <div class="panel">
+    <p class="eyebrow"><b>Live board</b> &nbsp;·&nbsp; value over next available, recomputed every pick</p>
+    <div class="grid g4" style="margin-bottom:12px">
+      <label class="fld"><span>Pick number</span><input type="number" id="dPick" value="1" min="1"></label>
+      <label class="fld"><span>Picks until your next</span><input type="number" id="dNext" value="22" min="1"></label>
+      <label class="fld"><span>Position</span>
+        <select id="dPos"><option value="">All</option><option>QB</option><option>RB</option><option>WR</option><option>TE</option><option>K</option><option>DST</option></select>
+      </label>
+      <label class="fld"><span>&nbsp;</span><button class="btn" id="dReset">Reset board</button></label>
+    </div>
+    <div id="dRuns"></div>
+    <div id="dScarcity" class="grid g6" style="margin-bottom:12px"></div>
+    <div class="tablewrap">
+      <table class="data">
+        <thead><tr>
+          <th>Take</th><th>Player</th><th>Pos</th><th class="r">Tier</th><th class="r">Pts/g</th>
+          <th class="r">VOR</th><th class="r">VONA</th><th class="r">ECR</th><th class="r">Risk</th><th>Why</th>
+        </tr></thead>
+        <tbody id="dBody"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel">
+    <p class="eyebrow"><b>Your roster</b> &nbsp;·&nbsp; <span id="dRosterCount">0</span> picked</p>
+    <div class="rows" id="dRoster"></div>
+  </div>
+</section>
+
+<!-- ------------------------------------------------------------------ LEAGUE -->
+<section class="view" id="view-league" hidden>
+  <div class="panel">
+    <p class="eyebrow"><b>Scoring</b> &nbsp;·&nbsp; every field re-derives the whole app</p>
+    <div class="grid g4" style="margin-bottom:14px">
+      <label class="fld"><span>Preset</span><select id="preset"></select></label>
+      <label class="fld"><span>Teams</span><input type="number" id="lTeams" value="12" min="2" max="20"></label>
+      <label class="fld"><span>Playoff weeks</span><input id="lPlayoff" value="15,16,17"></label>
+      <label class="fld"><span>Playoff weight</span><input type="number" id="lPWeight" value="2" step="0.5" min="1" max="5"></label>
+    </div>
+
+    <p class="eyebrow" style="margin-top:16px"><b>Starting slots</b></p>
+    <div class="grid g4" id="slotGrid"></div>
+
+    <p class="eyebrow" style="margin-top:18px"><b>Passing</b></p>
+    <div class="grid g4" id="passGrid"></div>
+
+    <p class="eyebrow" style="margin-top:18px"><b>Rushing &amp; receiving</b></p>
+    <div class="grid g4" id="rushGrid"></div>
+
+    <p class="eyebrow" style="margin-top:18px"><b>Kicking</b> &nbsp;·&nbsp; points by distance</p>
+    <div class="grid g6" id="kickGrid"></div>
+
+    <p class="eyebrow" style="margin-top:18px">
+      <b>D/ST</b> &nbsp;·&nbsp; events
+    </p>
+    <div class="grid g4" id="dstGrid"></div>
+
+    <p class="eyebrow" style="margin-top:18px">
+      <b>D/ST points allowed</b><span class="inferred">bucket edges inferred</span>
+    </p>
+    <div class="grid g3" id="paGrid"></div>
+
+    <p class="eyebrow" style="margin-top:18px">
+      <b>D/ST yards allowed</b><span class="inferred">bucket edges inferred</span>
+    </p>
+    <div class="grid g3" id="yaGrid"></div>
+
+    <p class="note">
+      You supplied nine payouts for each D/ST stack but not the bucket edges, so the ones
+      above are the standard ESPN cutoffs. They are the only numbers in this app that were
+      guessed rather than given or measured. Check them against your league settings and
+      change them here if they differ, because with both stacks live they are worth several
+      points a week.
+    </p>
+
+    <div style="margin-top:16px; display:flex; gap:8px; flex-wrap:wrap">
+      <button class="btn solid" id="applyLeague">Apply</button>
+      <button class="btn ghost" id="resetLeague">Back to full PPR defaults</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <p class="eyebrow"><b>Replacement level</b> &nbsp;·&nbsp; computed, not typed</p>
+    <div id="replBox"></div>
+  </div>
+</section>
+
+<!-- ------------------------------------------------------------------ METHOD -->
+<section class="view" id="view-method" hidden>
+  <div class="panel" id="methodBody"></div>
+  <div class="panel">
+    <p class="eyebrow"><b>Where the data comes from</b></p>
+    <div id="sourceBox"></div>
+  </div>
+</section>
+
+<footer>
+  Projections in, projections out. This does the roster math the way it should be done:
+  replacement level, optimal lineups week by week, playoff weighting, bye coverage. It
+  cannot tell you whether the numbers underneath are right, and it says where they came from
+  so you can judge that yourself.
+  <button class="link" id="wipe" style="display:block;margin-top:10px">Clear everything and start over</button>
+</footer>
+
+</div>
+
+<script src="data/pack.js"></script>
+<script src="data/demo.js"></script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

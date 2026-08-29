@@ -1,0 +1,229 @@
+# Trade Desk
+
+A full-PPR fantasy football projection system and a trade evaluator that does the roster math
+public analyzers skip.
+
+Open `dist/tradedesk.html` in a browser. No server, no network, no install — the data is baked
+in.
+
+---
+
+## The problem with every trade analyzer
+
+They add up projected points. That is wrong three ways, and this tool treats each one as a
+first-class output rather than a caveat.
+
+**Bench points are worth almost nothing.** Measured on the shipped projections, between 33%
+and 35% of a roster's raw projected total never reaches a starting lineup at any point in the
+season. Everything here is denominated in starter points and points above the player you would
+otherwise start. Bench depth is priced as insurance — how often a player actually sits outside
+the lineup, times how often a reserve at his depth gets called on, times what he beats the
+streamer by — not at face value.
+
+The case that makes it concrete. Trading Bijan Robinson for Saquon Barkley plus Breece Hall,
+against a roster already deep at running back:
+
+| | point-summing | this tool |
+|---|---|---|
+| side giving up the RB1 | **+4.85 pts/wk** | **−87.3 pts, season** |
+| side giving up two RB2s | −4.85 pts/wk | **+91.7 pts, season** |
+
+Not a difference of degree. The two methods disagree about who won, and the app says so in
+words rather than leaving you to notice.
+
+**The same trade is not worth the same to both teams.** Both rosters are evaluated
+independently against their own shape. Searching one-for-one swaps across two real rosters
+turns up Omarion Hampton for DeVonta Smith: point-summing calls it a flat −1.18 a week for
+everybody, while it is worth **+48.0 over the season to a back-heavy roster and −39.9 to a
+receiver-heavy one**. One team should accept and the other should refuse. That is the trade
+that actually gets accepted, and a summing tool cannot find it.
+
+**Weeks are not equal.** Every remaining week is walked separately, the optimal lineup
+re-solved each time with bye-week players simply absent. Bye collisions fall out of the
+schedule instead of needing a rule, and the fantasy playoff weeks can be weighted.
+
+And one more the good analyzers still skip: a point estimate hides risk. Because the
+projections are distributions, a verdict also reports change in expected wins and playoff odds,
+so a trade that raises the mean while lowering the floor says so.
+
+---
+
+## The league it defaults to
+
+Full PPR, exactly as configured:
+
+| | |
+|---|---|
+| Pass yd / TD / INT | 0.04 / 4 / −2 |
+| Rush & rec yd | 0.1 |
+| Rush & rec TD | 6 |
+| Reception | 1.0 |
+| Fumble lost | −2 |
+| FG by distance | 3 / 4 / 5 / 6, −1 miss, PAT 1 |
+| D/ST | sack 1, INT 2, FR 2, safety 2, TD 6 |
+| D/ST points allowed | 5 / 4 / 3 / 1 / 0 / 0 / −1 / −3 / −5 |
+| D/ST yards allowed | 5 / 3 / 2 / 0 / −1 / −3 / −5 / −6 / −7 |
+
+No bonuses anywhere. Every field is editable and the whole app re-derives live, because the
+data pack ships **component stat lines, never fantasy points** — the browser does the scoring.
+Switch to standard and Ja'Marr Chase drops out of the top three on the spot.
+
+### What this format actually does, measured
+
+`node scripts/league-edges.mjs` tests the format's reputation rather than repeating it.
+
+- **Receptions supply 31.4% of all RB/WR/TE points.** Trey McBride and Wan'Dale Robinson draw
+  over 40% of their value from catches; Derrick Henry draws 11%. Kenneth Gainwell is RB31 here
+  and RB44 in standard — that gap is the arbitrage against anyone in the league still valuing
+  in standard scoring.
+- **Quarterbacks compress, confirmed.** QB3 to QB14 is 1.49 points a week, against 4.59 for
+  RB3-to-RB14 and 3.19 for WR3-to-WR14. The best quarterback is worth 3.07 over replacement;
+  the best receiver is worth 10.88.
+- **D/ST streaming is genuinely +EV here.** The spread from the best season-long defense to the
+  worst is 6.23 points a game. The average best-to-worst swing *within a single defense's own
+  season* is 5.86. Matchup moves a defense nearly as much as talent does, which is a
+  consequence of stacking both tier tables and is not true in most leagues.
+- **Kickers are a tiebreaker.** Indoors is worth +0.83 points a game after controlling for
+  offense quality (t = 4.30 over 2,716 kicker-games), but the whole position spans under two
+  points.
+- **One finding worth acting on:** with a single flex, this scoring fills it with a receiver
+  10 times out of 12. Replacement is WR35 but only RB27 — a startable receiver is a deeper
+  commodity than a startable back.
+
+---
+
+## How the projections are built
+
+Volume × efficiency, anchored to the betting market, reconciled to real team totals.
+
+1. **Team scoring environment from the market.** `implied = total_line/2 ± spread_line/2` from
+   posted 2026 lines. Only 112 of 272 games are priced yet, and the fantasy playoff weeks have
+   none, so a ridge ratings model fills the rest; held out on completed seasons it lands within
+   2.4–3.0 RMSE of the real line against a 3.5–4.0 naive baseline. Every week is tagged
+   `market` or `model` and the app shows which.
+2. **Usage share**, recency-weighted across seven seasons and shrunk toward role priors
+   measured from data, not intuition — WR1 25.4% target share, WR2 18.0%, TE1 16.8%. Players
+   who changed teams lean on the 2026 depth chart, which is how offseason trades propagate.
+3. **Efficiency**, regressed by how fast each rate stabilizes. Yards per carry is regressed
+   several times harder than yards per target, because it is mostly noise at these samples.
+4. **Touchdowns from opportunity, not from touchdowns.** An empirical P(TD | yard line) curve
+   fitted over 137,303 plays, integrated across each player's actual carries and targets.
+   Expected touchdowns predict next season better than realized ones (r = 0.496 vs 0.453) and
+   the optimal blend weight fits at **0.765** — measured, not assumed.
+5. **Opponent adjustment**, shrunk hard and clamped, because DvP is the classic overfit.
+6. **Reconciliation.** Every team's projected players are scaled to sum to that team's
+   projected team totals. Receiving yards equal passing yards to within 0.1%.
+7. **Market blend.** The consensus board orders players better than an opportunity model does
+   while having no opinion on magnitude, so the blend happens in *rank* space and keeps the
+   model's calibrated value ladder.
+
+### Backtest
+
+Out-of-sample on 2025 with a strict pre-season information cutoff, 435 players with six or
+more games, running the pipeline that actually ships:
+
+| predictor | MAE | RMSE | bias | corr |
+|---|---|---|---|---|
+| **this model** | **2.628** | **3.694** | −0.494 | **0.778** |
+| last year's points per game | 2.878 | 3.742 | +0.733 | 0.774 |
+| positional average | 3.998 | 4.947 | 0.000 | 0.449 |
+
+The model wins MAE at every position. Two things to read honestly:
+
+- **The evaluation set favors the baseline.** It only contains players who played six games in
+  both years, which is exactly where "what he did last year" works best. The model's advantage
+  is larger for rookies, players who changed teams, and players whose role changed — cases
+  where the baseline is undefined or misleading.
+- **Projections are compressed relative to outcomes, by design.** The player who finishes as
+  the top receiver is partly the one who got lucky, so an honest projection of today's top
+  receiver sits below what the eventual leader will score. A model whose top projection matched
+  the realized top score would be overconfident, not accurate. Bias against *per-team-game*
+  production is +0.09, so the residual is survivorship in the evaluation set rather than
+  miscalibration.
+
+---
+
+## Limitations
+
+Stated plainly, because a projection tool that hides these is worse than no tool.
+
+- **41% of 2026 games have a posted betting line.** The rest, including every fantasy playoff
+  week, use the ratings model. The app labels which is which.
+- **The D/ST tier boundaries are inferred.** Nine payouts were supplied for each stack but not
+  the bucket edges, so the standard ESPN cutoffs are used. They are the only numbers in the
+  app that were guessed rather than given or measured, they are editable on the League tab, and
+  with both stacks live they are worth several points a week.
+- **Preseason depth charts rank whoever takes the most preseason snaps**, which puts camp
+  bodies above starters. Players absent from the consensus board are pushed down to compensate,
+  but a genuine late-summer job change may still be mispriced.
+- **Expected wins and playoff odds assume an opponent.** With none supplied the simulation
+  mirrors your own roster and says so on screen.
+- **Two source feeds disagree** about a handful of veterans (Diggs, Keenan Allen, Najee Harris
+  among them) who appear on the consensus board but not on the 2026 roster file. They are
+  carried with their consensus team and flagged rather than dropped or silently trusted.
+
+---
+
+## Layout
+
+```
+pipeline/          Python. Fetches, models, and compiles the data pack.
+  sources.py       34 datasets, cached and fingerprinted
+  components.py    nflverse columns -> canonical components (verified against 57,048 games)
+  checks.py        empirical validation of source conventions
+  market.py        ridge ratings model anchored to posted lines
+  redzone.py       expected touchdowns from play-by-play
+  priors.py        role priors measured by depth rank
+  calibrate.py     team coefficients fitted from 2019-2025
+  model.py         the projection model
+  blend.py         consensus-rank blending
+  build_pack.py    compiles app/data/pack.js
+  backtest.py      out-of-sample evaluation
+  sanity.py        face-validity leaderboards
+  demo_league.py   generates the demo rosters
+
+app/js/            The engines. Plain ES modules, no dependencies.
+  scoring.js       components -> points, any format
+  lineup.js        exact optimal lineup (Hungarian, not greedy)
+  replacement.js   endogenous replacement level
+  projections.js   weekly and rest-of-season projections
+  sim.js           correlated Monte Carlo
+  trade.js         the trade evaluator
+  draft.js         live draft board
+  main.js          UI
+
+scripts/
+  bundle.mjs         -> dist/tradedesk.html, self-contained
+  verify-browser.mjs  end-to-end check in headless Chromium
+  thesis.mjs          proves the three claims against the real data
+  league-edges.mjs    measures this format's actual effects
+```
+
+## Running it
+
+```bash
+npm test                          # 242 tests
+node scripts/bundle.mjs           # build dist/tradedesk.html
+node scripts/verify-browser.mjs   # end-to-end in a real browser
+node scripts/thesis.mjs           # the three claims, checked against real projections
+node scripts/league-edges.mjs     # what this scoring format actually does
+
+python3 pipeline/sources.py       # fetch source data (~460MB, cached)
+python3 pipeline/calibrate.py     # refit team coefficients
+python3 pipeline/build_pack.py    # rebuild app/data/pack.js
+python3 pipeline/backtest.py --season 2025
+```
+
+Rebuilding the pack needs Python 3.11 with pandas, numpy and pyarrow. The app itself needs
+nothing.
+
+## Data
+
+- **[nflverse](https://github.com/nflverse)** — play-by-play, weekly box scores, rosters, depth
+  charts, injuries, snap counts, schedules. Released under CC-BY-4.0 / MIT depending on the
+  dataset.
+- **[DynastyProcess](https://github.com/dynastyprocess/data)** — FantasyPros expert consensus
+  ranks, scraped daily. MIT.
+
+Every file is fingerprinted into the pack's provenance record, visible on the app's
+"How this works" tab. Nothing is fetched at runtime.

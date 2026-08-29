@@ -498,6 +498,16 @@ function simulateBothSides(A, B, { cfg, pack, league, slots, weeks, opts }) {
     rng: makeRng(seed + salt), n: draws,
   })
 
+  // A typical week's floor and ceiling, averaged across the remaining weeks. The season
+  // distribution in `dist` is over WINS, not points, so the weekly spread has to come from
+  // the per-week rows -- reading dist.p10 gives undefined, which is how the UI ended up
+  // rendering "— → —" where the floor should be.
+  const weeklyQ = (res, q) => {
+    const rows = res.pointsPerWeek || []
+    if (!rows.length) return null
+    return rows.reduce((s, r) => s + num(r[q], 0), 0) / rows.length
+  }
+
   // The same seed for before and after so the comparison is paired: the difference is the
   // trade, not the draw.
   const out = {}
@@ -511,8 +521,17 @@ function simulateBothSides(A, B, { cfg, pack, league, slots, weeks, opts }) {
       playoffOdds: { before: before.playoffOdds, after: after.playoffOdds,
         delta: after.playoffOdds - before.playoffOdds },
       pointsPerWeek: { before: before.pointsPerWeek, after: after.pointsPerWeek },
-      floor: { before: before.dist?.p10, after: after.dist?.p10 },
-      ceiling: { before: before.dist?.p90, after: after.dist?.p90 },
+      floor: { before: weeklyQ(before, 'p10'), after: weeklyQ(after, 'p10') },
+      median: { before: weeklyQ(before, 'p50'), after: weeklyQ(after, 'p50') },
+      ceiling: { before: weeklyQ(before, 'p90'), after: weeklyQ(after, 'p90') },
+      wins: { before: before.dist?.wins, after: after.dist?.wins },
+      // The simulation infers an opponent when none is supplied, and says so. Carried
+      // through rather than dropped, because "playoff odds" with an invented opponent is
+      // a number that needs its caveat attached.
+      assumptions: {
+        opponent: after.opponent?.note || null,
+        playoff: after.playoff?.note || null,
+      },
     }
   }
   return out
