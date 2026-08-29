@@ -332,3 +332,93 @@ export function openings(input) {
     return true
   })
 }
+
+/* ------------------------------------------------------------------ ghosting */
+
+/**
+ * What the other manager is left holding, and what they come back asking for.
+ *
+ * A trade is a negotiation, not a transaction. The offer you send is rarely the deal you
+ * sign, so the useful question is not only "will they accept" but "what do they counter
+ * with" -- and that is answerable, because the counter is driven by the hole your own
+ * offer just opened in their roster.
+ *
+ * Three readouts, all measured on their roster AS IT WOULD BE after the deal:
+ *
+ *   exposed    positions they can no longer fill with anyone better than a waiver pickup.
+ *              This is what your offer cost them, and where they will push back.
+ *   likelyAsk  the players on YOUR roster they will name to fix it -- best first, drawn
+ *              from your own spare parts before your starters, because that is the
+ *              counter you can actually afford to say yes to.
+ *   canGive    what they are still deep in, which is what you ask for in return.
+ *
+ * @param {object} input
+ * @param {Array}  input.myRoster     your roster before the deal
+ * @param {Array}  input.theirRoster  their roster before the deal
+ * @param {Array}  input.give         players you send (they receive)
+ * @param {Array}  input.get          players you receive (they send)
+ */
+export function counterplay(input) {
+  const inp = isObj(input) ? input : {}
+  const cfg = isObj(inp.cfg) ? inp.cfg : DEFAULT_SCORING
+  const league = { ...DEFAULT_LEAGUE, ...(isObj(inp.league) ? inp.league : {}) }
+  const replacement = inp.replacement || {}
+
+  const give = inp.give || []
+  const get = inp.get || []
+  const outOfMine = new Set(give.map((p) => p.id))
+  const outOfTheirs = new Set(get.map((p) => p.id))
+
+  const myAfter = (inp.myRoster || []).filter((p) => !outOfMine.has(p.id)).concat(get)
+  const theirAfter = (inp.theirRoster || []).filter((p) => !outOfTheirs.has(p.id)).concat(give)
+
+  const mine = positionalShape(myAfter, { cfg, league, replacement })
+  const theirs = positionalShape(theirAfter, { cfg, league, replacement })
+
+  // A hole is worse the more of its slots go unfilled and the further below replacement
+  // whoever is standing in them sits.
+  const exposed = CORE_POS
+    .map((pos) => theirs[pos])
+    .filter((s) => s && s.hole)
+    .map((s) => ({
+      pos: s.pos,
+      filled: s.filled,
+      canStart: s.canStart,
+      startable: s.startable,
+      severity: (s.canStart - s.filled) * 2 + Math.max(0, -s.startable),
+    }))
+    .sort((a, b) => b.severity - a.severity)
+
+  // What they will name. Spare parts first: a counter you can say yes to is worth more
+  // than one you have to refuse.
+  //
+  // Players they are sending in THIS deal are excluded. They end up on your roster, so a
+  // naive read of your post-trade roster offers them straight back -- and no manager
+  // counters by asking for the player they just traded away. Caught by reading the output
+  // rather than the code: the matrix cheerfully suggested they would want back the
+  // quarterback they were sending.
+  const justSent = new Set(get.map((p) => p.id))
+  const likelyAsk = []
+  for (const hole of exposed.slice(0, 2)) {
+    const s = mine[hole.pos]
+    if (!s) continue
+    const eligible = s.names.filter((p) => !justSent.has(p.id))
+    const spare = eligible.slice(Math.max(0, s.canStart - (s.names.length - eligible.length)))
+    const pick = spare.length ? spare : eligible.slice(0, 1)
+    for (const p of pick.slice(0, 2)) {
+      likelyAsk.push({ ...p, pos: hole.pos, fromSurplus: spare.length > 0 })
+    }
+  }
+
+  const canGive = CORE_POS
+    .map((pos) => theirs[pos])
+    .filter((s) => s && s.surplus > 1)
+    .sort((a, b) => b.surplus - a.surplus)
+    .map((s) => ({
+      pos: s.pos,
+      surplus: s.surplus,
+      names: s.names.slice(s.canStart, s.canStart + 2),
+    }))
+
+  return { exposed, likelyAsk, canGive, theirShape: theirs, myShape: mine }
+}
