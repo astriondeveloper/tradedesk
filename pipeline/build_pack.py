@@ -459,9 +459,33 @@ def build() -> dict:
     sched, byes, cov = market.build_schedule(games, TARGET_SEASON)
     print(f"  {cov['market_share']:.0%} of team-games have a posted line; rest modeled")
 
+    # Refuse to build without the frozen inputs rather than building a worse model quietly.
+    # `redzone.load_pbp` and `blend.load_history` both return empty frames when their files
+    # are absent, so a machine that never ran bootstrap.py produces a pack that looks
+    # completely normal -- right player count, right team totals, no warnings -- with the
+    # expected-touchdown model and the market-blend weight silently switched off. A build
+    # that fails is recoverable in one command; a plausible-looking bad pack is not.
+    import bootstrap  # noqa: E402  (local, and only needed at build time)
+
+    gaps = bootstrap.missing()
+    if gaps:
+        print(f"\nrefusing to build: {len(gaps)} frozen input(s) missing", file=sys.stderr)
+        for key in sorted(gaps):
+            print(f"  {key}  <- {bootstrap.FROZEN[key][0]}", file=sys.stderr)
+        print("\nThese degrade silently rather than erroring, so the build stops here.",
+              file=sys.stderr)
+        print("Fetch them with:  python3 pipeline/bootstrap.py", file=sys.stderr)
+        sys.exit(1)
+
     print("play-by-play opportunity + expected touchdowns...")
     rz = RZ.build()
     print(f"  {rz['n_plays']:,} plays; expected TD beats realized: {rz['regression_check'].get('expected_beats_realized')}")
+    if rz["n_plays"] < 100_000:
+        # Present but truncated is the other way this goes wrong. Three full seasons is
+        # roughly 145k plays; anything near zero means the files are there and unreadable.
+        print(f"refusing to build: only {rz['n_plays']:,} plays loaded, expected >100,000",
+              file=sys.stderr)
+        sys.exit(1)
 
     print("role priors...")
     role_priors = P.build(hist, team_hist)
@@ -612,6 +636,9 @@ def build() -> dict:
             "logSeasons": LOG_SEASONS,
             "playerCount": len(players),
             "modelRankWeight": MODEL_RANK_WEIGHT,
+            # Carried into the pack so a degraded build is visible in the app's own
+            # provenance tab, not only in a log nobody kept.
+            "rzPlays": int(rz["n_plays"]),
             "marketCoverage": cov,
             "sources": manifest({k: p for k, p in
                                  {s.key: s.path for s in __import__("sources").SOURCES}.items()

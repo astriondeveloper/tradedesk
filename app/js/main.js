@@ -1091,7 +1091,15 @@ function renderMethod() {
       <div><div class="k">Byes cross-checked</div><div class="v">${integ.bye_weeks ? `${integ.bye_weeks.agree}/${integ.bye_weeks.checked}` : '—'}</div></div>
       <div><div class="k">Expected TD beats actual</div><div class="v">${integ.td_regression?.expected_beats_realized ? 'yes' : 'no'}</div></div>
       <div><div class="k">Implied total bias</div><div class="v">${f2(integ.implied_totals?.bias)}</div></div>
-    </div>`
+      <div><div class="k">Plays behind the TD model</div><div class="v">${
+  Number.isFinite(PACK.meta.rzPlays) ? PACK.meta.rzPlays.toLocaleString() : '—'
+}</div></div>
+    </div>
+    <p class="note">The play count is here because the red-zone model is the one input that
+      used to fail silently: with the play-by-play absent it returned an empty frame and the
+      build succeeded anyway, shipping worse projections with no warning anywhere. The build
+      now refuses rather than degrading, and the number it loaded is recorded here so you can
+      see it rather than trust it. Three full seasons is about 137,000 plays.</p>`
 
   $('sourceBox').innerHTML = '<div class="tablewrap"><table class="data"><thead><tr>'
     + '<th>Dataset</th><th class="r">Size</th><th>Fingerprint</th></tr></thead><tbody>'
