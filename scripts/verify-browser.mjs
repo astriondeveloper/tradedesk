@@ -188,9 +188,14 @@ const espnOk = await page.evaluate(() => {
         { statId: 24, points: 0.1 }, { statId: 25, points: 6 }, { statId: 42, points: 0.1 },
         { statId: 43, points: 6 }, { statId: 53, points: 0.5 }, { statId: 72, points: -2 }] },
     },
+    // Four teams, not two. Two is enough to test an import and useless for testing the
+    // thing that matters here: watching a deal you are not in needs somebody to be the
+    // reader while two other teams trade.
     teams: [
       { id: 1, location: 'Alpha', nickname: 'Ones', roster: { entries: team(0) } },
       { id: 2, location: 'Beta', nickname: 'Twos', roster: { entries: team(1) } },
+      { id: 3, location: 'Gamma', nickname: 'Threes', roster: { entries: team(2) } },
+      { id: 4, location: 'Delta', nickname: 'Fours', roster: { entries: team(3) } },
     ],
   }
   const ta = document.getElementById('espnPaste')
@@ -204,7 +209,7 @@ const importText = await page.locator('#espnResult').textContent()
 note(/Imported/.test(importText || ''), 'ESPN payload imports', (importText || '').slice(0, 90))
 note(/Verification League/.test(importText || ''), 'league name read from the payload')
 const teamPicker = await page.locator('#espnMine option').count()
-note(teamPicker >= 2, 'team picker populated', `${teamPicker} teams`)
+note(teamPicker >= 4, 'team picker populated', `${teamPicker} teams`)
 await page.screenshot({ path: join(SHOTS, 'desktop-espn.png'), fullPage: true })
 
 // Applying the import must change the scoring to that league's (half PPR here).
@@ -250,6 +255,60 @@ if (hasPicker > 0) {
 }
 const staleShown = await page.locator('#verdict .stale').count()
 note(staleShown > 0, 'data age warning is shown with the verdict')
+
+/* --------------------------------------------- watching a deal you are not in */
+
+// Put two rivals in the panels, declare yourself a third team, and check the board reports
+// what their deal did to a roster that did not change. This is the path that has no
+// equivalent anywhere else in the app, so nothing else covers it.
+note(await page.locator('#scoutBar').isVisible(), 'the team loader appears once a league is imported')
+
+await page.selectOption('#pickMe', '3')   // I am Delta Fours
+await page.selectOption('#pickA', '0')    // Alpha and Beta trade
+await page.selectOption('#pickB', '1')
+await page.locator('#pickLoad').click()
+await page.waitForTimeout(2500)
+
+const whoText = await page.locator('#scoutWho').textContent()
+note(/watching from outside/.test(whoText || ''), 'the app knows you are not in this deal',
+  (whoText || '').trim())
+
+// Move a real player so there is a deal to score.
+await page.locator('#rowsA .row .pill').nth(1).click()
+await page.locator('#rowsB .row .pill').nth(1).click()
+await page.waitForTimeout(4000)
+
+note(await page.locator('#impactPanel').isVisible(), 'league impact panel renders')
+const boardRows = await page.locator('#impactBody .board tbody tr').count()
+note(boardRows === 4, 'every team is on the board', `${boardRows} rows`)
+note(await page.locator('#impactBody .board tr.me').count() === 1, 'your own row is marked')
+note(await page.locator('#impactBody .board tr.inplay').count() === 2,
+  'both teams in the deal are marked')
+
+// The invariant, checked through the DOM rather than the module: the reader's roster did
+// not change, so the reader's before and after numbers must be identical on screen.
+const myCells = await page.locator('#impactBody .board tr.me td').allTextContents()
+note(myCells.length >= 5 && myCells[2].trim() === myCells[3].trim(),
+  'a deal you are not in does not move your own points', `${myCells[2]} -> ${myCells[3]}`)
+note(/^(—|0\.0)$/.test((myCells[4] || '').trim()),
+  'and your change column reads as no change', (myCells[4] || '').trim())
+
+const impactHead = await page.locator('#impactBody .headline .big').textContent()
+note(/[-+]?\d/.test(impactHead || ''), 'the impact headline shows a number', impactHead)
+const impactWord = await page.locator('#impactBody .verdictword').textContent()
+note(/field/.test(impactWord || ''), 'and states the direction in words', impactWord)
+
+note(await page.locator('#openingsPanel').isVisible(), 'openings panel renders')
+const bars = await page.locator('#openingsBody .posbar').count()
+note(bars === 6, 'your positional shape is broken out', `${bars} positions`)
+await page.screenshot({ path: join(SHOTS, 'desktop-scout.png'), fullPage: true })
+
+// Put the reader back inside the deal and the framing has to change.
+await page.selectOption('#pickMe', '0')
+await page.waitForTimeout(3000)
+const inDeal = await page.locator('#scoutWho').textContent()
+note(/you are in this deal/.test(inDeal || ''), 'and it knows when you are in the deal',
+  (inDeal || '').trim())
 
 // --- method tab ---------------------------------------------------------------
 await page.locator('nav.tabs button[data-view="method"]').click()

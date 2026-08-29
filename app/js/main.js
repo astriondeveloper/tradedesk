@@ -15,6 +15,7 @@ import { evaluateTrade, suggestFair, playerPPG, DEFAULT_LEAGUE } from './trade.j
 import { draftBoard, detectRun, positionScarcity } from './draft.js'
 import { findTrades, marketValues } from './finder.js'
 import { parseEspnLeague, espnUrl } from './espn.js'
+import { tradeImpact, openings, positionalShape, leagueContext, CORE_POS } from './scout.js'
 
 const PACK = window.TD_PACK
 const DEMO = window.TD_DEMO || null
@@ -68,6 +69,12 @@ const state = {
   // know about: mark a player and every projection re-runs, with no network involved.
   status: {},
   espn: null,          // the imported league: teams, rosters, settings
+  // Which imported team sits in each panel, and which one is the reader's. -1 means the
+  // panel holds a hand-built roster rather than a league team. `myTeam` is what makes a
+  // deal between two rivals legible: without it there is no "you" to measure against.
+  pickA: -1,
+  pickB: -1,
+  myTeam: -1,
   finder: { untouchable: [], targets: [], maxGive: 2, maxGet: 2, opponent: 0, result: null },
   players: { q: '', pos: '', window: 'season', limit: 50, sort: 'pts', dir: -1, open: null },
 }
@@ -78,6 +85,7 @@ function save() {
       nameA: state.nameA, nameB: state.nameB, A: state.A, B: state.B,
       cfg: state.cfg, league: state.league, draft: state.draft,
       status: state.status, espn: state.espn,
+      pickA: state.pickA, pickB: state.pickB, myTeam: state.myTeam,
     }))
   } catch (e) { /* private mode, quota, blocked storage: the session still works */ }
 }
@@ -97,6 +105,9 @@ function load() {
     if (s.draft) state.draft = { ...state.draft, ...s.draft }
     if (s.status) state.status = s.status
     if (s.espn) state.espn = s.espn
+    for (const k of ['pickA', 'pickB', 'myTeam']) {
+      if (Number.isInteger(s[k])) state[k] = s[k]
+    }
   } catch (e) { /* corrupt or unavailable storage: fall back to defaults */ }
 }
 
@@ -291,7 +302,198 @@ function wireSearch(side) {
 
 /* ------------------------------------------------------------------ verdict */
 
+/* ------------------------------------------------- watching other teams trade */
+
+/** The imported league as player objects from the pack, with status overrides applied. */
+function leagueTeams() {
+  const teams = state.espn?.teams
+  if (!Array.isArray(teams) || teams.length < 2) return null
+  return teams.map((t, i) => ({
+    index: i,
+    name: t.name || `Team ${i + 1}`,
+    mine: i === state.myTeam,
+    players: (t.players || [])
+      .map((p) => withStatus(byId.get(p.id)))
+      .filter(Boolean),
+  }))
+}
+
+function renderScoutBar() {
+  const teams = leagueTeams()
+  $('scoutBar').hidden = !teams
+  if (!teams) return
+
+  for (const [id, key, extra] of [['pickA', 'pickA', 'Left roster as typed'],
+    ['pickB', 'pickB', 'Right roster as typed'], ['pickMe', 'myTeam', 'Not set']]) {
+    const sel = $(id)
+    sel.innerHTML = ''
+    const none = el('option')
+    none.value = '-1'
+    none.textContent = extra
+    sel.appendChild(none)
+    teams.forEach((t) => {
+      const o = el('option')
+      o.value = String(t.index)
+      o.textContent = `${t.name} (${t.players.length})`
+      sel.appendChild(o)
+    })
+    sel.value = String(state[key])
+  }
+
+  const me = teams.find((t) => t.mine)
+  const inDeal = state.pickA === state.myTeam || state.pickB === state.myTeam
+  $('scoutWho').textContent = !me ? 'set "you are" to see league impact'
+    : inDeal ? `you are ${me.name} — you are in this deal`
+      : `you are ${me.name} — watching from outside`
+}
+
+/**
+ * What a deal between two other teams does to the board, and to the reader.
+ *
+ * Only rendered when both panels hold real league teams. A hand-built roster has no place
+ * in the standings, and inventing one for it would put a number on screen that means
+ * nothing.
+ */
+function renderImpact(sendA, sendB) {
+  const teams = leagueTeams()
+  const ok = teams && state.pickA >= 0 && state.pickB >= 0
+    && state.pickA !== state.pickB && (sendA.length || sendB.length)
+  $('impactPanel').hidden = !ok
+  $('openingsPanel').hidden = !ok || state.myTeam < 0
+  if (!ok) return
+
+  const imp = tradeImpact({
+    teams, pack: PACK, cfg: state.cfg, league: state.league, myIndex: state.myTeam,
+    swap: { aIndex: state.pickA, bIndex: state.pickB, sendA, sendB },
+  })
+
+  const st = imp.standing
+  let html = ''
+
+  if (st) {
+    const inDeal = state.pickA === state.myTeam || state.pickB === state.myTeam
+    // Reported from the reader's point of view: a field that got stronger is a loss for
+    // them, so the sign is flipped and the direction is also said in words. Leaving the
+    // reader to work out that "+2.4 field strength" is bad news would defeat the panel.
+    const gain = -st.fieldDelta
+    const word = Math.abs(gain) < 0.5 ? 'barely moves the field'
+      : gain > 0 ? 'the field got weaker' : 'the field got stronger'
+    const moved = st.rankDelta === 0 ? 'You hold your place on the board.'
+      : st.rankDelta > 0
+        ? `You move up to <b>${st.rankAfter}</b> without lifting a finger.`
+        : `You drop to <b>${st.rankAfter}</b> without touching your roster.`
+
+    html += `<div class="headline">
+      <div>
+        <span class="verdictword ${cls(gain, 0.5)}">${esc(word)}</span>
+        <span class="big ${cls(gain, 0.5)}">${sign(gain)}${f1(gain)}</span>
+        <span class="unit">pts, avg rival</span>
+      </div>
+      <div class="read">${inDeal
+    ? 'You are in this deal, so the board below moves for the obvious reason.'
+    : `A trade does not conserve league strength — players move to rosters where they `
+      + `actually start. These two ${st.dealSwing > 0.5 ? 'both got more out of their players than they gave up, '
+        + 'which is the classic good trade and exactly the case where everyone else lost ground'
+        : st.dealSwing < -0.5 ? 'took less out of their players than before, which is a gift to the rest of you'
+          : 'came out roughly level, so the field barely notices'}. ${moved}`}
+      </div>
+    </div>`
+  }
+
+  html += `<div class="tablewrap"><table class="board">
+    <thead><tr>
+      <th>#</th><th>Team</th><th class="r">Before</th><th class="r">After</th>
+      <th class="r">Change</th><th class="r">Rank</th>
+    </tr></thead><tbody>`
+
+  for (const t of imp.teams.slice().sort((a, b) => a.after.rank - b.after.rank)) {
+    const move = t.rankDelta
+    const moveTxt = move === 0 ? '—' : `${move > 0 ? '▲' : '▼'}${Math.abs(move)}`
+    html += `<tr class="${t.mine ? 'me' : t.inPlay ? 'inplay' : ''}">
+      <td class="n rk">${t.after.rank}</td>
+      <td class="who">${esc(t.name)}${t.inPlay ? ' <span class="pos">in deal</span>' : ''}</td>
+      <td class="r n dim">${f1(t.before.weighted)}</td>
+      <td class="r n">${f1(t.after.weighted)}</td>
+      <td class="r n ${cls(t.delta, 0.5)}">${Math.abs(t.delta) < 0.05 ? '—' : sign(t.delta) + f1(t.delta)}</td>
+      <td class="r rankmove ${move > 0 ? 'up' : move < 0 ? 'down' : 'dim'}">${moveTxt}</td>
+    </tr>`
+  }
+  html += '</tbody></table></div>'
+  html += '<p class="note">Playoff-weighted starter points over the remaining season, '
+    + 'every roster solved for its own optimal lineup week by week. This is the same '
+    + 'ledger the verdict above runs on, so the two cannot disagree.</p>'
+
+  $('impactBody').innerHTML = html
+  renderOpenings(imp, teams)
+}
+
+/** Who to call next, and about what. */
+function renderOpenings(imp, teams) {
+  if (state.myTeam < 0) return
+  const box = $('openingsBody')
+
+  // Rosters as they stand AFTER the deal: the whole value of watching a trade is knowing
+  // what it left behind.
+  const after = teams.map((t) => {
+    const a = imp.after.rows.find((r) => r.index === t.index)
+    return { ...t, players: a ? a.players : t.players }
+  })
+  const me = after.find((t) => t.mine)
+  if (!me) { box.innerHTML = ''; return }
+
+  const { replacement } = leagueContext({
+    teams: after, pack: PACK, cfg: state.cfg, league: state.league,
+  })
+  const list = openings({
+    myRoster: me.players, teams: after, pack: PACK, cfg: state.cfg,
+    league: state.league, replacement,
+  })
+
+  const shape = positionalShape(me.players, { cfg: state.cfg, league: state.league, replacement })
+  let html = '<div class="posbars" style="margin-bottom:16px">'
+  for (const pos of ['QB', 'RB', 'WR', 'TE', 'K', 'DST']) {
+    const s = shape[pos]
+    const kind = s.hole ? 'hole' : s.surplus > 2 ? 'surplus' : ''
+    // Magnitude, not signed value. A position that is 17 points BELOW replacement is the
+    // loudest thing on this readout, and a bar scaled by the signed number would clamp it
+    // to a sliver and hide the worst hole on the roster.
+    const width = Math.max(3, Math.min(100, (Math.abs(s.startable) / Math.max(1, s.canStart)) * 14))
+    html += `<div class="posbar ${kind}">
+      <div class="k">${pos}</div>
+      <div class="v">${sign(s.startable)}${f1(s.startable)}</div>
+      <div class="track"><i style="width:${width.toFixed(0)}%"></i></div>
+    </div>`
+  }
+  html += '</div>'
+  html += '<p class="note" style="margin-top:0;margin-bottom:16px">Your own shape: points '
+    + 'per week above replacement from the players who actually start at each position. '
+    + `Red is a hole, green is startable talent on your bench — the only thing you can `
+    + 'trade without weakening a lineup.</p>'
+
+  if (!list.length) {
+    html += '<p class="empty">No clean fit right now. Nobody\'s hole lines up with your surplus.</p>'
+  } else {
+    for (const o of list.slice(0, 5)) {
+      const mine = o.myPlayers.slice(0, 2).map((p) => p.name).join(', ')
+      const theirs = o.theirPlayers.slice(0, 2).map((p) => p.name).join(', ')
+      html += `<div class="opening">
+        <div class="who">${esc(o.team)}</div>
+        <div class="why">Send <b>${esc(o.give)}</b>, ask for <b>${esc(o.get)}</b>.
+          They cannot fill ${esc(o.give)} and are carrying spare ${esc(o.get)}.
+          ${mine ? `Your spare ${esc(o.give)}: <b>${esc(mine)}</b>.` : ''}
+          ${theirs ? `Theirs to give at ${esc(o.get)}: <b>${esc(theirs)}</b>.` : ''}
+        </div>
+      </div>`
+    }
+    html += '<p class="note">Ranked by the smaller half of each fit, because a trade needs '
+      + 'both: your spare receiver is worth nothing to a team already deep there. Use the '
+      + 'Propose tab to price an actual package.</p>'
+  }
+  box.innerHTML = html
+}
+
 function renderTrade() {
+  renderScoutBar()
   renderRoster('A')
   renderRoster('B')
   $('capA').textContent = `${state.A.length} players`
@@ -306,11 +508,13 @@ function renderTrade() {
   if (!A.length && !B.length) {
     box.innerHTML = staleBanner()
       + '<p class="empty">Add players to both rosters, then tap the arrows to build a trade.</p>'
+    renderImpact([], [])
     save()
     return
   }
   if (!sendA.length && !sendB.length) {
     box.innerHTML = '<p class="empty">Nobody is moving yet. Tap the arrow next to each player in the deal.</p>'
+    renderImpact([], [])
     save()
     return
   }
@@ -455,6 +659,10 @@ function renderTrade() {
         + '</tbody></table></div>'
     }, 0)
   }
+
+  // Deferred: the board solves an optimal lineup for every team in the league, twice. That
+  // is fast but not free, and the verdict is what the reader is waiting on.
+  setTimeout(() => renderImpact(sendA, sendB), 0)
   save()
 }
 
@@ -981,6 +1189,34 @@ function init() {
   $('fOpponent').addEventListener('change', () => { state.finder.targets = []; renderPropose() })
   for (const id of ['fMaxGive', 'fMaxGet']) $(id).addEventListener('change', () => {})
 
+  for (const [id, key] of [['pickA', 'pickA'], ['pickB', 'pickB'], ['pickMe', 'myTeam']]) {
+    $(id).addEventListener('change', (e) => {
+      state[key] = parseInt(e.target.value, 10)
+      if (key === 'myTeam') renderTrade()
+      else renderScoutBar()
+      save()
+    })
+  }
+  $('pickLoad').onclick = () => {
+    const teams = leagueTeams()
+    if (!teams) return
+    if (state.pickA === state.pickB && state.pickA >= 0) {
+      alert('Pick two different teams.')
+      return
+    }
+    for (const [side, idx, nameKey] of [['A', state.pickA, 'nameA'], ['B', state.pickB, 'nameB']]) {
+      const t = teams[idx]
+      if (!t) continue
+      state[side] = t.players.map((p) => p.id)
+      state[nameKey] = t.name
+      $(nameKey).value = t.name
+    }
+    state.move = {}
+    replKey = ''
+    renderTrade()
+    save()
+  }
+
   $('loadDemo').onclick = loadDemo
   $('clearTrade').onclick = () => { state.move = {}; renderTrade() }
   $('wipe').onclick = () => {
@@ -988,6 +1224,7 @@ function init() {
     state.draft = { taken: [], mine: [], pick: 1, next: 22, pos: '' }
     state.status = {}
     state.espn = null
+    state.pickA = -1; state.pickB = -1; state.myTeam = -1
     state.finder = { untouchable: [], targets: [], maxGive: 2, maxGet: 2, opponent: 0, result: null }
     try { localStorage.removeItem(STORE) } catch (e) { /* nothing to clear */ }
     renderAll()
@@ -1110,6 +1347,11 @@ function renderEspnResult(r) {
     state.B = theirs.players.map((p) => p.id)
     state.nameA = mine.name
     state.nameB = theirs.name
+    state.pickA = Number($('espnMine').value)
+    state.pickB = Number($('espnTheirs').value)
+    // The team you named as yours stays yours even after you load two rivals into the
+    // panels, which is what lets the board tell you what a deal you are not in costs you.
+    state.myTeam = state.pickA
     state.move = {}
     // ESPN's own injury flags are fresher than anything in the pack, so they seed the
     // status overrides -- and are then yours to adjust.

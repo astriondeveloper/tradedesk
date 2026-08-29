@@ -10,6 +10,7 @@
 <!-- Inline so it survives bundling into one file and costs no request when hosted:
      two opposed arrows in the app's amber, on the app's ink. -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230E141A'/><g fill='none' stroke='%23E0B040' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'><path d='M6 12.5h16m-4.5-4.5 4.5 4.5-4.5 4.5'/><path d='M26 21.5H10m4.5-4.5L10 21.5l4.5 4.5'/></g></svg>">
+<link rel="stylesheet" href="css/fonts.css">
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
@@ -33,6 +34,26 @@
 
 <!-- ------------------------------------------------------------------ TRADE -->
 <section class="view" id="view-trade">
+
+  <!-- Only appears once a league is imported: before that there is nobody else to watch. -->
+  <div class="panel" id="scoutBar" hidden>
+    <p class="eyebrow">
+      <b>Load any two teams</b> &nbsp;·&nbsp; you do not have to be in the deal
+      <span class="spacer"></span>
+      <span class="dim" id="scoutWho"></span>
+    </p>
+    <div class="grid g4">
+      <label class="fld"><span>Left panel</span><select id="pickA"></select></label>
+      <label class="fld"><span>Right panel</span><select id="pickB"></select></label>
+      <label class="fld"><span>You are</span><select id="pickMe"></select></label>
+      <label class="fld"><span>&nbsp;</span><button class="btn" id="pickLoad">Load rosters</button></label>
+    </div>
+    <p class="note" style="margin-top:12px">
+      Two rivals trading changes your season without touching your roster, because standings
+      are relative. Put both of them in the panels and the board below shows what it cost you.
+    </p>
+  </div>
+
   <div class="teams">
     <div class="panel">
       <p class="eyebrow"><b>Your team</b><span class="spacer"></span><span id="capA" class="dim"></span></p>
@@ -73,6 +94,20 @@
       <button class="link" id="clearTrade">Clear</button>
     </p>
     <div id="verdict"></div>
+  </div>
+
+  <div class="panel" id="impactPanel" hidden>
+    <p class="eyebrow">
+      <b>League impact</b> &nbsp;·&nbsp; every roster scored the same way, before and after
+    </p>
+    <div id="impactBody"></div>
+  </div>
+
+  <div class="panel" id="openingsPanel" hidden>
+    <p class="eyebrow">
+      <b>Your openings</b> &nbsp;·&nbsp; where their hole meets your surplus
+    </p>
+    <div id="openingsBody"></div>
   </div>
 </section>
 

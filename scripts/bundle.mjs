@@ -126,7 +126,6 @@ function wrapModule(abs, src) {
 
 function build() {
   const html = read(join(APP, 'index.html'))
-  const css = read(join(APP, 'css', 'app.css'))
   const pack = read(join(APP, 'data', 'pack.js'))
   const demoPath = join(APP, 'data', 'demo.js')
   const demo = existsSync(demoPath) ? read(demoPath) : ''
@@ -136,8 +135,14 @@ function build() {
     .map((m) => `/* ==== ${m.path.slice(APP.length + 1)} ==== */\n${wrapModule(m.path, m.src)}`)
     .join('\n')
 
+  // Inline every stylesheet the page links, in the order it links them -- fonts.css carries
+  // base64 @font-face rules and must land before the rules that use the families.
+  let sheets = 0
   const body = html
-    .replace(/<link rel="stylesheet" href="css\/app\.css">/, `<style>\n${css}\n</style>`)
+    .replace(/<link rel="stylesheet" href="css\/([A-Za-z0-9_-]+\.css)">/g, (_, file) => {
+      sheets++
+      return `<style>\n/* ==== css/${file} ==== */\n${read(join(APP, 'css', file))}\n</style>`
+    })
     .replace(/<script src="data\/pack\.js"><\/script>/, '<!-- data pack inlined below -->')
     .replace(/<script src="data\/demo\.js"><\/script>/, '')
     .replace(/<script type="module" src="js\/main\.js"><\/script>/,

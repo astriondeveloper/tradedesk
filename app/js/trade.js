@@ -153,7 +153,7 @@ const RUSH_KEYS = new Set(['ratt', 'ryd', 'rtd', 'r40', 'rfd'])
 const TD_KEYS = new Set(['ptd', 'retd', 'rtd'])
 
 /** Weeks remaining, from `fromWeek` through the end of the regular season. */
-function remainingWeeks(pack, fromWeek) {
+export function remainingWeeks(pack, fromWeek) {
   const last = num(pack?.meta?.regSeasonWeeks, 18)
   const from = Math.max(1, Math.trunc(num(fromWeek, 1)))
   const out = []
