@@ -9,11 +9,13 @@
  */
 
 import { chromium } from 'playwright'
-import { mkdirSync, existsSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { createReadStream, mkdirSync, existsSync, statSync } from 'node:fs'
+import { createServer } from 'node:http'
+import { dirname, join, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const APP = join(ROOT, 'app')
 const FILE = join(ROOT, 'dist', 'tradedesk.html')
 const SHOTS = join(ROOT, 'dist', 'shots')
 
@@ -29,9 +31,12 @@ const note = (ok, label, extra = '') => {
   if (!ok) problems.push(label)
 }
 
-const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-})
+// This machine keeps its browsers somewhere Playwright does not look. A CI runner that
+// ran `playwright install` does not, so only override the path when it is really there.
+const PINNED_CHROME = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'
+const browser = await chromium.launch(
+  existsSync(PINNED_CHROME) ? { executablePath: PINNED_CHROME } : {},
+)
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } })
 const page = await ctx.newPage()
 
@@ -266,6 +271,77 @@ await phone.screenshot({ path: join(SHOTS, 'phone-trade.png'), fullPage: true })
 await phone.locator('nav.tabs button[data-view="draft"]').click()
 await phone.waitForTimeout(1500)
 await phone.screenshot({ path: join(SHOTS, 'phone-draft.png'), fullPage: true })
+
+/* -------------------------------------------------------------- served over http */
+
+// Everything above tested the flattened single file opened from disk. GitHub Pages serves
+// something else entirely: app/ as it is written, with real ES module imports, over http.
+// The two share no loading code, so passing one says nothing about the other -- an import
+// path that only the bundler resolves would sail through every check above.
+//
+// The mount mirrors what the pages workflow assembles: app/ at the root, with the
+// single-file build alongside it as /tradedesk.html.
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+}
+
+const server = createServer((req, res) => {
+  const rel = normalize(decodeURIComponent(req.url.split('?')[0])).replace(/^(\.\.[/\\])+/, '')
+  const file = rel === '/' || rel === '/index.html' ? join(APP, 'index.html')
+    : rel === '/tradedesk.html' ? FILE
+      : join(APP, rel)
+  if (!file.startsWith(APP) && file !== FILE) { res.writeHead(403).end(); return }
+  if (!existsSync(file) || !statSync(file).isFile()) { res.writeHead(404).end('not found'); return }
+  const ext = file.slice(file.lastIndexOf('.'))
+  res.writeHead(200, {
+    'content-type': MIME[ext] || 'application/octet-stream',
+    'content-length': statSync(file).size,
+  })
+  createReadStream(file).pipe(res)
+})
+await new Promise((ok) => server.listen(0, '127.0.0.1', ok))
+const origin = `http://127.0.0.1:${server.address().port}`
+
+console.log(`\nloading app/ over ${origin} -- the shape GitHub Pages serves\n`)
+
+const hostedErrors = []
+const hosted = await ctx.newPage()
+hosted.on('pageerror', (e) => hostedErrors.push(String(e)))
+hosted.on('console', (m) => { if (m.type() === 'error') hostedErrors.push('console: ' + m.text()) })
+await hosted.goto(origin, { waitUntil: 'load' })
+await hosted.waitForTimeout(2500)
+
+note(hostedErrors.length === 0, 'the unbundled module graph loads over http',
+  hostedErrors.slice(0, 2).join(' | '))
+
+const hostedRows = await hosted.locator('#rowsA .row').count()
+note(hostedRows > 5, 'hosted build renders the demo', `${hostedRows} rows`)
+
+// The staleness advice differs by how the page was opened, and getting it backwards would
+// tell a hosted user to go run a Python script they do not have.
+await hosted.locator('#rowsA .row .pill').first().click()
+await hosted.waitForTimeout(2000)
+const hostedStale = (await hosted.locator('#verdict .stale').first().textContent()) || ''
+note(/refetches and refits every morning/.test(hostedStale),
+  'hosted copy says it rebuilds itself')
+note(!/refresh\.py/.test(hostedStale),
+  'hosted copy does not tell the reader to run a local script')
+
+const offlineHref = await hosted.locator('#offline').getAttribute('href')
+note(await hosted.locator('#offline').isVisible(), 'offline download offered when hosted')
+const dl = await hosted.request.get(new URL(offlineHref, origin).href)
+note(dl.ok() && Number(dl.headers()['content-length'] || 0) > 1e6,
+  'the offline download resolves', `${offlineHref} -> ${dl.status()}`)
+
+// And the inverse: the file:// copy must not claim it updates itself.
+const fileStale = (await page.locator('#verdict .stale').first().textContent()) || ''
+note(/refresh\.py/.test(fileStale) && !/every morning/.test(fileStale),
+  'downloaded copy still says how to rebuild it')
+
+await hosted.screenshot({ path: join(SHOTS, 'hosted-trade.png'), fullPage: true })
+server.close()
 
 await browser.close()
 

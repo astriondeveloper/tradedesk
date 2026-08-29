@@ -3,8 +3,11 @@
 A full-PPR fantasy football projection system and a trade evaluator that does the roster math
 public analyzers skip.
 
-Open `dist/tradedesk.html` in a browser. No server, no network, no install — the data is baked
-in.
+**Live: [astriondeveloper.github.io/tradedesk](https://astriondeveloper.github.io/tradedesk/)** —
+rebuilt from fresh data every morning.
+
+Or open `dist/tradedesk.html` in a browser. No server, no network, no install — the data is
+baked in.
 
 ---
 
@@ -195,12 +198,28 @@ The model wins MAE at every position. Two things to read honestly:
 
 ## Does it stay current?
 
-**No, not by itself, and that is a design choice.** The app ships a static data pack and
-makes no network calls at runtime, so it works offline, holds no credentials, and cannot
-break because a feed changed. The cost is that it knows nothing that happened after it was
-built.
+**The hosted page does. A copy you download does not, and it says so on screen.**
 
-Three ways to deal with that, in order of effort:
+The app itself makes no network calls at runtime — it ships a static data pack, so it works
+offline, holds no credentials, and cannot break because a feed changed mid-week. Freshness
+comes from rebuilding the pack, not from the page phoning home.
+
+So the pack gets rebuilt for you. Every morning at 11:00 UTC, GitHub Actions re-fetches every
+volatile source — injury reports, the consensus board, depth charts, rosters, last week's box
+scores, newly posted betting lines — refits the projections, verifies the result in a real
+browser, and redeploys. Seven seasons of play-by-play do not change and stay cached, which is
+what keeps the job to a few minutes instead of half an hour.
+
+Two things about that are worth knowing:
+
+- **A failed refresh does not ship a broken page.** If a feed is down or a schema moved, the
+  job falls back to the pack committed in the repo and deploys that. If the browser check
+  fails, nothing deploys at all and the previous day's page stays up. Either way the age
+  stamp in the header tells the truth rather than the intention.
+- **The rebuilt pack is never committed back.** It is 2MB and it changes daily; committing it
+  would add roughly 700MB a year of history for something reproducible in a minute.
+
+Three ways to deal with what even a morning rebuild cannot know, in order of effort:
 
 1. **Mark a status on the player's row.** Healthy / Questionable / Out / IR. This flows
    through availability into every projection, lineup, and trade verdict immediately, needs
@@ -210,12 +229,14 @@ Three ways to deal with that, in order of effort:
    injury reports, the consensus board, depth charts, rosters, last week's box scores, and
    newly posted betting lines — then rebuilds the pack, the demo and the bundle. Seven
    seasons of play-by-play do not change and are left alone. Tuesday or Wednesday is the
-   right time, after the injury reports land.
+   right time, after the injury reports land. Only needed for a local copy — the hosted page
+   already runs this for itself.
 3. **Import your ESPN league again.** ESPN's own injury designations come across with the
    rosters and seed the status overrides.
 
 The app shows its data age in the header and repeats it above every verdict, turning red
-past a week. It will not let you forget how old the numbers are.
+past a week. It will not let you forget how old the numbers are. On the hosted page an age
+above a day means the morning rebuild failed, not that it is waiting on you.
 
 ## Limitations
 
@@ -258,6 +279,7 @@ pipeline/          Python. Fetches, models, and compiles the data pack.
   backtest.py      out-of-sample evaluation
   sanity.py        face-validity leaderboards
   demo_league.py   generates the demo rosters
+  bootstrap.py     fetch the large frozen inputs a clean checkout is missing
   refresh.py       re-fetch what moves, rebuild everything
 
 app/js/            The engines. Plain ES modules, no dependencies.
@@ -277,6 +299,10 @@ scripts/
   verify-browser.mjs  end-to-end check in headless Chromium
   thesis.mjs          proves the three claims against the real data
   league-edges.mjs    measures this format's actual effects
+
+.github/workflows/
+  tests.yml           unit tests, sanity, and the browser check on every push
+  pages.yml           deploys to Pages; on a schedule, refits from fresh data first
 ```
 
 ## Running it
@@ -284,11 +310,12 @@ scripts/
 ```bash
 npm test                          # 275 tests
 node scripts/bundle.mjs           # build dist/tradedesk.html
-node scripts/verify-browser.mjs   # end-to-end in a real browser
+node scripts/verify-browser.mjs   # 39 end-to-end checks, file:// and served over http
 node scripts/thesis.mjs           # the three claims, checked against real projections
 node scripts/league-edges.mjs     # what this scoring format actually does
 
-python3 pipeline/sources.py       # fetch source data (~460MB, cached)
+pip install -r pipeline/requirements.txt
+python3 pipeline/bootstrap.py     # fetch everything a clean checkout lacks (~460MB, cached)
 python3 pipeline/calibrate.py     # refit team coefficients
 python3 pipeline/build_pack.py    # rebuild app/data/pack.js
 python3 pipeline/backtest.py --season 2025
@@ -296,7 +323,26 @@ python3 pipeline/refresh.py       # weekly: refresh volatile data and rebuild
 ```
 
 Rebuilding the pack needs Python 3.11 with pandas, numpy and pyarrow. The app itself needs
-nothing.
+nothing. Run `bootstrap.py` before the first build: the play-by-play and the historical
+consensus board are large and frozen, so they sit outside the refresh loop, and without them
+the red-zone and market-blend models silently switch themselves off.
+
+## Hosting it
+
+Push to the default branch and `pages.yml` deploys. It serves `app/` as written — real ES
+modules, the pack as a separate cacheable file — with the single-file build alongside it at
+`/tradedesk.html` for offline use, which the page offers as a download when it notices it is
+being served rather than opened.
+
+Two settings are not in the repo and have to be set once, in the GitHub UI:
+
+- **Settings → Pages → Source: GitHub Actions.** The workflow asks for this itself
+  (`configure-pages` with `enablement: true`) so it usually just works. **Pages on a private
+  repo needs a paid plan**; on a free account, either make the repo public or keep using
+  `dist/tradedesk.html` locally, which is the same app with the same data.
+- **Settings → General → Default branch.** Only the default branch deploys, and GitHub only
+  runs scheduled jobs on the default branch, so the daily refresh follows whatever that is
+  set to.
 
 ## Data
 

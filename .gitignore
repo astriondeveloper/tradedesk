@@ -5,6 +5,9 @@ pipeline/.cache/
 # Build output. `npm run build` regenerates it from app/ + the data pack.
 dist/
 
+# Assembled by the pages workflow from app/ + dist/. Never a source of truth.
+_site/
+
 # Python
 __pycache__/
 *.pyc
