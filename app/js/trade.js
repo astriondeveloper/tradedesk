@@ -36,7 +36,8 @@ import { simSeason, makeRng, DEFAULT_SEED } from './sim.js'
 /* ------------------------------------------------------------------ defaults */
 
 export const DEFAULT_LEAGUE = Object.freeze({
-  teams: 12,
+  /** Eight teams, nine starters, seven on the bench -- see `pipeline/league.json`. */
+  teams: 8,
   slots: Object.freeze({ QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1, BEN: 7 }),
   /** Fantasy postseason. Weighted because these weeks decide seasons. */
   playoffWeeks: Object.freeze([15, 16, 17]),

@@ -52,18 +52,35 @@ note(consoleErrors.length === 0, 'no console errors', consoleErrors.slice(0, 2).
 const packInfo = await page.evaluate(() => ({
   players: window.TD_PACK?.players?.length ?? 0,
   season: window.TD_PACK?.meta?.season,
-  demo: !!window.TD_DEMO,
+  league: window.TD_LEAGUE?.rosters?.length ?? 0,
+  myTeam: window.TD_LEAGUE?.myTeam,
+  leagueTeams: window.TD_LEAGUE?.teams,
 }))
 note(packInfo.players > 900, 'data pack present', `${packInfo.players} players, ${packInfo.season}`)
-note(packInfo.demo, 'demo league present')
+note(packInfo.league === packInfo.leagueTeams && packInfo.league > 1,
+  'the real league is present, every roster in it',
+  `${packInfo.league} of ${packInfo.leagueTeams} teams, you are ${packInfo.myTeam}`)
 
 // --- the trade view rendered a real verdict -----------------------------------
 const rowsA = await page.locator('#rowsA .row').count()
 const rowsB = await page.locator('#rowsB .row').count()
-note(rowsA > 5 && rowsB > 5, 'both rosters populated from the demo', `${rowsA} / ${rowsB}`)
+note(rowsA > 5 && rowsB > 5, 'both rosters populated from the league', `${rowsA} / ${rowsB}`)
 
 const names = await page.locator('#rowsA .nm').allTextContents()
 note(names.some((n) => n.trim().length > 3), 'roster shows real player names', names[0] || '')
+
+// The app should open on the user's own roster against this week's opponent, with both
+// pickers resolving to real league teams rather than sitting on "custom".
+const picks = await page.evaluate(() => ({
+  a: document.getElementById('pickA')?.value,
+  b: document.getElementById('pickB')?.value,
+  mine: window.TD_LEAGUE?.myTeam,
+  opts: document.getElementById('pickA')?.options.length ?? 0,
+}))
+note(picks.a === picks.mine, 'opens on your own roster', `${picks.a}`)
+note(!!picks.b && picks.b !== picks.a, "the other side is this week's opponent", `${picks.b}`)
+note(picks.opts === (await page.evaluate(() => window.TD_LEAGUE.rosters.length)) + 1,
+  'every league team is selectable', `${picks.opts} options`)
 
 // Move a player and confirm a verdict appears with real numbers.
 await page.locator('#rowsA .row .pill').first().click()
@@ -138,7 +155,9 @@ await page.screenshot({ path: join(SHOTS, 'desktop-league.png'), fullPage: true 
 await page.locator('nav.tabs button[data-view="propose"]').click()
 await page.waitForTimeout(900)
 const oppCount = await page.locator('#fOpponent option').count()
-note(oppCount > 0, 'propose tab offers an opponent', `${oppCount} option(s)`)
+const rivals = await page.evaluate(() => (window.TD_LEAGUE?.rosters?.length ?? 1) - 1)
+note(oppCount >= rivals, 'propose tab offers every other team in the league',
+  `${oppCount} option(s) for ${rivals} rivals`)
 await page.locator('#fRun').click()
 await page.waitForTimeout(14000)
 const proposals = await page.locator('#fResults .proposal').count()
@@ -245,6 +264,41 @@ if (hasPicker > 0) {
 }
 const staleShown = await page.locator('#verdict .stale').count()
 note(staleShown > 0, 'data age warning is shown with the verdict')
+
+// --- a saved session that belongs to a different league --------------------------
+// The rosters ship with the app, so a session saved before the league was last
+// re-transcribed is a snapshot of a league that no longer exists. It must not be
+// restored on top of today's pack -- but the things that are about players rather than
+// about the league (scoring, injury overrides) should survive.
+await page.evaluate(() => localStorage.setItem('tradedesk:v2', JSON.stringify({
+  stamp: 'some other league|2025|w9|12',
+  nameA: 'Ground Game', nameB: 'Air Raid',
+  A: window.TD_LEAGUE.rosters[2].players.slice(0, 3).map((p) => p.id),
+  B: window.TD_LEAGUE.rosters[3].players.slice(0, 3).map((p) => p.id),
+  league: { teams: 12, playoffWeeks: [14, 15, 16] },
+  status: { [window.TD_LEAGUE.rosters[0].players[0].id]: 'OUT' },
+})))
+await page.reload({ waitUntil: 'load' })
+await page.waitForTimeout(2500)
+const recovered = await page.evaluate(() => {
+  const saved = JSON.parse(localStorage.getItem('tradedesk:v2'))
+  return {
+    pickA: document.getElementById('pickA').value,
+    pickB: document.getElementById('pickB').value,
+    teams: saved.league.teams,
+    keptStatus: saved.status[window.TD_LEAGUE.rosters[0].players[0].id],
+    mine: window.TD_LEAGUE.myTeam,
+  }
+})
+note(recovered.pickA === recovered.mine && !!recovered.pickB && recovered.pickB !== recovered.pickA,
+  'a session from a different league is replaced by the shipped rosters',
+  `${recovered.pickA} vs ${recovered.pickB}`)
+note(recovered.teams === 8, 'and its stale league size is discarded too', `teams ${recovered.teams}`)
+note(recovered.keptStatus === 'OUT', 'while injury overrides survive, being about players')
+
+// Put the page back on a trade so the screenshots below are of a populated view.
+await page.locator('nav.tabs button[data-view="trade"]').click()
+await page.waitForTimeout(800)
 
 // --- method tab ---------------------------------------------------------------
 await page.locator('nav.tabs button[data-view="method"]').click()

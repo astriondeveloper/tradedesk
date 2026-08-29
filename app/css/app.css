@@ -147,6 +147,8 @@ label.fld > span {
 /* ------------------------------------------------------------------ rosters */
 
 .teams { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
+/* The league picker sits above the free-text name: pick a real roster, or type over it. */
+.teampick { margin-bottom: 8px; font-size: 12px; padding: 6px 8px; }
 .teamname {
   background: transparent; border: 0; border-bottom: 1px solid var(--line);
   border-radius: 0; padding: 0 0 7px; font-family: var(--sans);

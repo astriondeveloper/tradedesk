@@ -96,7 +96,10 @@ def main() -> None:
 
     if not run([sys.executable, "pipeline/build_pack.py"], "rebuilding the data pack"):
         sys.exit(1)
-    if not run([sys.executable, "pipeline/demo_league.py"], "regenerating the demo league"):
+    # The rosters themselves are transcribed by hand, but they are re-resolved against the
+    # rebuilt pack every time: a player who changed NFL teams over the week fails the
+    # schedule check here rather than being priced against the wrong offense all season.
+    if not run([sys.executable, "pipeline/build_league.py"], "re-resolving the league rosters"):
         sys.exit(1)
 
     node = ROOT / "scripts" / "bundle.mjs"

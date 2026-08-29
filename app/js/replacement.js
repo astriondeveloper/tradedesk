@@ -63,9 +63,12 @@
 /** Canonical positions, always present in every returned map. */
 export const POSITIONS = Object.freeze(['QB', 'RB', 'WR', 'TE', 'K', 'DST']);
 
-/** The user's league (contract section 6 worked example). Used when `league` is partial. */
+/**
+ * The user's league (contract section 6 worked example). Used when `league` is partial.
+ * Eight teams, nine starters, seven on the bench — see `pipeline/league.json`.
+ */
 export const DEFAULT_LEAGUE = Object.freeze({
-  teams: 12,
+  teams: 8,
   slots: Object.freeze({ QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1, BEN: 7 }),
 });
 

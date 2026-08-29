@@ -174,6 +174,38 @@ single self-contained HTML file.
 
 ---
 
+## 5a. League schema (`app/data/league.js` → `window.TD_LEAGUE`)
+
+The rosters are part of the shipped data, not something the user types in. `pipeline/league.json`
+is the hand-maintained transcription; `pipeline/build_league.py` resolves it against the pack and
+writes the file below. The build is fatal on any unresolved name, any position or NFL team that
+disagrees with the pack, any duplicate across rosters, and any roster that does not fit the slot
+table — so a transcription slip cannot reach the app as a plausible-looking wrong roster.
+
+```js
+{
+  name, season: 2026, asOfWeek: 1,
+  teams: 8,
+  slots: { QB:1, RB:2, WR:2, TE:1, FLEX:1, DST:1, K:1, BEN:7 },
+  playoffWeeks: [15,16,17],
+  myTeam: 'Pissed Off',
+  matchups: [ ['CMCn MY WAY TO THE CHAMPIONSHIP', 'Pissed Off'], ... ],
+  rosters: [ { name, owner,
+               players: [ { id, name, pos, team, bye, slot, status? }, ... ] }, ... ]
+}
+```
+
+`slot` is the ESPN lineup slot the player occupied at `asOfWeek` (`BEN` for the bench); `status`
+carries ESPN's injury designation and seeds the app's status overrides on load, exactly the way
+an ESPN import does.
+
+Two invariants the app leans on, both asserted in `tests/league.test.mjs`: every id resolves to a
+player in the pack shipped beside it, and `DEFAULT_LEAGUE` in the engines matches this file's
+size, slots and playoff weeks. The second is what stops the app from quietly pricing a league
+nobody plays in.
+
+---
+
 ## 6. Module interfaces
 
 Source is ES modules under `app/js/`. `scripts/bundle.mjs` inlines everything into
@@ -212,6 +244,13 @@ derived from league size × starting slots × flex behavior, with the actual fre
 used when league rosters are known. Falls back to the rank-based baseline
 `leagueSize × startersAt(pos) + flexShare(pos)` when only two rosters are loaded. Still
 user-overridable, but correct by default.
+
+Since the whole league ships with the app (section 5a), the free-agent path is the one that
+actually runs: the app hands the engine every id any team owns, coverage comes out near 100%,
+and replacement is the literal waiver wire. The two methods disagree most at running back —
+the rank baseline says RB19, the waiver wire says RB34 — because this league rosters more
+backs than its slot table implies. The engine reports which method it used per position, and
+the UI shows it.
 
 ---
 
@@ -271,14 +310,17 @@ a win for one roster and a loss for the mirror image of it.
 
 ## 9. Full-PPR consequences the app should surface
 
-The user's league is full PPR with 4-point passing TDs. That has specific, exploitable effects:
+The user's league is eight teams, full PPR, with 4-point passing TDs. That has specific,
+exploitable effects, and the shallow league sharpens all of them:
 
 - **Receptions dominate.** A back catching 5 balls is +5 before a single yard. Pass-catching
   RBs and volume slot WRs are systematically underpriced by anyone still valuing in standard.
   The app shows a *reception share of value* so this is visible, not just implied.
-- **QBs compress.** 4-point passing TDs and −2 interceptions flatten the position. QB3 → QB14
-  is a smaller gap than it looks; the VOR math prices that automatically and should be trusted
-  over positional instinct.
+- **QBs compress, and eight teams flattens them further.** 4-point passing TDs and −2
+  interceptions flatten the position; a league this small leaves a startable quarterback on
+  the wire every week. QB3 → QB14 is a smaller gap than it looks, and the best QB in the
+  league is worth about two points a week over the best one nobody owns. The VOR math prices
+  that automatically and should be trusted over positional instinct.
 - **D/ST matters unusually much.** Stacking *both* points-allowed and yards-allowed tiers means
   a dominant defensive game is worth 8–10 on tiers alone and a bad one goes negative. That makes
   matchup streaming genuinely +EV here, which is not true in most leagues.

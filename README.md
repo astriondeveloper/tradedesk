@@ -4,7 +4,8 @@ A full-PPR fantasy football projection system and a trade evaluator that does th
 public analyzers skip.
 
 Open `dist/tradedesk.html` in a browser. No server, no network, no install — the data is baked
-in.
+in, including all eight rosters in the league. It opens on your team against whoever you play
+this week.
 
 ---
 
@@ -13,30 +14,31 @@ in.
 They add up projected points. That is wrong three ways, and this tool treats each one as a
 first-class output rather than a caveat.
 
-**Bench points are worth almost nothing.** Measured on the shipped projections, between 33%
-and 35% of a roster's raw projected total never reaches a starting lineup at any point in the
-season. Everything here is denominated in starter points and points above the player you would
-otherwise start. Bench depth is priced as insurance — how often a player actually sits outside
-the lineup, times how often a reserve at his depth gets called on, times what he beats the
-streamer by — not at face value.
+**Bench points are worth almost nothing.** Measured on the eight rosters actually in this
+league, between **36.6% and 43.0%** of a roster's raw projected total never reaches a starting
+lineup at any point in the season. Your own roster is the worst of the eight at 43%. Everything
+here is denominated in starter points and points above the player you would otherwise start.
+Bench depth is priced as insurance — how often a player actually sits outside the lineup, times
+how often a reserve at his depth gets called on, times what he beats the streamer by — not at
+face value.
 
 The case that makes it concrete. Trading Bijan Robinson for Saquon Barkley plus Breece Hall,
 against a roster already deep at running back:
 
 | | point-summing | this tool |
 |---|---|---|
-| side giving up the RB1 | **+4.85 pts/wk** | **−87.3 pts, season** |
-| side giving up two RB2s | −4.85 pts/wk | **+91.7 pts, season** |
+| side giving up the RB1 | **+4.86 pts/wk** | **−92.0 pts, season** |
+| side giving up two RB2s | −4.86 pts/wk | **+66.3 pts, season** |
 
 Not a difference of degree. The two methods disagree about who won, and the app says so in
 words rather than leaving you to notice.
 
 **The same trade is not worth the same to both teams.** Both rosters are evaluated
-independently against their own shape. Searching one-for-one swaps across two real rosters
-turns up Omarion Hampton for DeVonta Smith: point-summing calls it a flat −1.18 a week for
-everybody, while it is worth **+48.0 over the season to a back-heavy roster and −39.9 to a
-receiver-heavy one**. One team should accept and the other should refuse. That is the trade
-that actually gets accepted, and a summing tool cannot find it.
+independently against their own shape. Searching one-for-one swaps across the league's two most
+opposite rosters turns up Kyren Williams for Tee Higgins: point-summing calls it a flat +1.79 a
+week for everybody, while it is worth **+29.0 over the season to the most back-heavy roster in
+the league and −7.6 to the most receiver-heavy one**. One team should accept and the other
+should refuse. That is the trade that actually gets accepted, and a summing tool cannot find it.
 
 **Weeks are not equal.** Every remaining week is walked separately, the optimal lineup
 re-solved each time with bye-week players simply absent. Bye collisions fall out of the
@@ -47,6 +49,39 @@ projections are distributions, a verdict also reports change in expected wins an
 so a trade that raises the mean while lowering the floor says so.
 
 ---
+
+## The league it is built for
+
+Eight teams, transcribed off the ESPN matchup pages and shipped with the app. Nine starters —
+QB, two RB, two WR, TE, FLEX, D/ST, K — and seven on the bench. Playoff weeks 15/16/17.
+
+| team | manager | | team | manager |
+|---|---|---|---|---|
+| CMCn MY WAY TO THE CHAMPIONSHIP | Colby Campbell | vs | **Pissed Off** | **Gavin Taylor — you** |
+| Zachs team | Zach Bradford | vs | Brennan put BTA | Brennan Meeks |
+| Keegan's team | Keegan Verble | vs | Riley's Rowdy Team | Riley Campbell |
+| Wastonder The Towel | Dylan Campbell | vs | Njigba B Trippin | Jonathan Preston |
+
+The rosters live in `pipeline/league.json` and are compiled by `pipeline/build_league.py`, which
+refuses to write anything it cannot verify. All 127 rostered players resolve to a player in the
+data pack, and each one's NFL team is cross-examined against the pack's own schedule: a mistyped
+team code shows up as an opponent that does not line up rather than as a roster that looks fine
+and prices wrong. Edit the JSON, re-run the build, and every number in the app follows.
+
+Because the whole league is known, replacement level stops being an estimate. The app hands the
+engine the set of players somebody owns, and replacement becomes literally the best player on
+the waiver wire — the method `replacement.js` always preferred and never had the data for.
+
+Two consequences worth knowing about, both visible on the League tab:
+
+- **Eight teams is a shallow league.** Slot math alone would put replacement at WR21 and RB19.
+- **This league hoards running backs.** The actual free-agent bar is WR24 but **RB34** — a
+  startable back is far scarcer here than the format implies, and that is the single most
+  decision-relevant number in the app.
+
+Anything that happened after the transcription — a waiver claim, a trade, an injury — has to be
+edited on the Trade tab or re-transcribed into `league.json`. The app says so on the League tab
+rather than letting you assume it keeps up.
 
 ## Bringing in your real ESPN league
 
@@ -82,23 +117,24 @@ Every package is valued **twice** —
   over replacement so it is comparable.
 
 The deal you want is one that prices out even on names and is not even at all once your
-bench is accounted for. On two complementary rosters the top result is *give McCaffrey and
-Gibbs, get Chase, Higgins and Pitts*: worth **+9.5 points a week** to the back-heavy side
-while the other side perceives it as a **small gain for themselves**, because consensus rank
-cannot see that the backs being sent were the third and fourth on a roster that starts two.
+bench is accounted for. Run from your roster against Riley's Rowdy Team, the top result is
+*give Nico Collins and Drake London, get Kenneth Walker III and Tetairoa McMillan*: worth
+**+2.7 points a week** to you, while the other side perceives it as a **+3.0 gain for
+themselves** and scores 64% to accept — because consensus rank cannot see that the receivers
+being sent were the third and fourth on a roster that starts two and a flex.
 
 Each candidate reports a **would-they-accept** score built from perceived value (which
 dominates), how well the incoming players fit their lineup, and true value (a minor term,
 because they cannot see it). Deals split into **worth sending** and **longshots**, and when
 nothing clears the bar the app says so rather than manufacturing something.
 
-Search notes: roughly 37,000 packages get screened on per-player marginal values, then a
-stratified shortlist — sampled across bands of perceived fairness, not just by what helps
-you most — gets a full exact evaluation. Sampling by strata matters: ranking on your own
-gain alone fills the shortlist with mild fleeces and never evaluates the balanced deals at
-all.
+Search notes: against the real rosters in this league, 4,500 to 6,900 packages get screened on
+per-player marginal values, then a stratified shortlist — sampled across bands of perceived
+fairness, not just by what helps you most — gets a full exact evaluation. Sampling by strata
+matters: ranking on your own gain alone fills the shortlist with mild fleeces and never
+evaluates the balanced deals at all.
 
-## The league it defaults to
+## The scoring
 
 Full PPR, exactly as configured:
 
@@ -126,19 +162,23 @@ Switch to standard and Ja'Marr Chase drops out of the top three on the spot.
   over 40% of their value from catches; Derrick Henry draws 11%. Kenneth Gainwell is RB31 here
   and RB44 in standard — that gap is the arbitrage against anyone in the league still valuing
   in standard scoring.
-- **Quarterbacks compress, confirmed.** QB3 to QB14 is 1.49 points a week, against 4.59 for
-  RB3-to-RB14 and 3.19 for WR3-to-WR14. The best quarterback is worth 3.07 over replacement;
-  the best receiver is worth 10.88.
+- **Quarterbacks compress, confirmed — and eight teams makes it worse.** QB3 to QB14 is 1.49
+  points a week, against 4.59 for RB3-to-RB14 and 3.20 for WR3-to-WR14. Fifteen quarterbacks
+  are rostered league-wide, so the best one nobody owns already projects at 18.4 a game: the
+  best quarterback in the league is worth **1.99** over him, the best receiver **9.98**. Paying
+  up at quarterback here is close to setting money on fire.
 - **D/ST streaming is genuinely +EV here.** The spread from the best season-long defense to the
   worst is 6.23 points a game. The average best-to-worst swing *within a single defense's own
-  season* is 5.86. Matchup moves a defense nearly as much as talent does, which is a
+  season* is 5.85. Matchup moves a defense nearly as much as talent does, which is a
   consequence of stacking both tier tables and is not true in most leagues.
-- **Kickers are a tiebreaker.** Indoors is worth +0.83 points a game after controlling for
-  offense quality (t = 4.30 over 2,716 kicker-games), but the whole position spans under two
-  points.
+- **Kickers are a tiebreaker, and in this league not even that.** Indoors is worth +0.83 points
+  a game after controlling for offense quality (t = 4.30 over 2,716 kicker-games), but the whole
+  position spans 1.97 points — and with only eight kickers rostered, the best kicker on the
+  board is a free agent. Every kicker in the league is worth zero over replacement.
 - **One finding worth acting on:** with a single flex, this scoring fills it with a receiver
-  10 times out of 12. Replacement is WR35 but only RB27 — a startable receiver is a deeper
-  commodity than a startable back.
+  5 times out of 8. But the slot math and the waiver wire disagree, and the waiver wire wins:
+  replacement is WR24 and **RB34**. A startable back is the scarce thing in this league,
+  because eight managers are sitting on nineteen of them.
 
 ---
 
@@ -200,19 +240,35 @@ makes no network calls at runtime, so it works offline, holds no credentials, an
 break because a feed changed. The cost is that it knows nothing that happened after it was
 built.
 
-Three ways to deal with that, in order of effort:
+The rosters have the same problem, and it is a separate one: they are a snapshot of week 1.
+A waiver claim on Tuesday is not in here until somebody puts it there.
+
+Four ways to deal with all of that, in order of effort:
 
 1. **Mark a status on the player's row.** Healthy / Questionable / Out / IR. This flows
    through availability into every projection, lineup, and trade verdict immediately, needs
    no network, and is the right tool for news that broke an hour ago. It is disclosed in the
    verdict so a changed number is never unexplained.
-2. **Re-run `python3 pipeline/refresh.py`.** About a minute. Re-fetches only what moves —
+2. **Add and drop players on the Trade tab.** The team picker flips to "custom roster" the
+   moment a side stops matching the shipped one, so an edited roster never masquerades as the
+   real thing.
+3. **Edit `pipeline/league.json` and re-run `python3 pipeline/build_league.py`.** A second or
+   two. This is the right move once a real transaction has happened, because it fixes the
+   roster everywhere — Trade, Propose, replacement level — instead of in one session.
+4. **Re-run `python3 pipeline/refresh.py`.** About a minute. Re-fetches only what moves —
    injury reports, the consensus board, depth charts, rosters, last week's box scores, and
-   newly posted betting lines — then rebuilds the pack, the demo and the bundle. Seven
-   seasons of play-by-play do not change and are left alone. Tuesday or Wednesday is the
-   right time, after the injury reports land.
-3. **Import your ESPN league again.** ESPN's own injury designations come across with the
-   rosters and seed the status overrides.
+   newly posted betting lines — then rebuilds the pack, re-resolves the league against it, and
+   rebuilds the bundle. Seven seasons of play-by-play do not change and are left alone.
+   Tuesday or Wednesday is the right time, after the injury reports land.
+
+Importing your ESPN league again also works, and brings ESPN's own injury designations with it.
+An import overrides the shipped rosters for as long as it is loaded.
+
+The browser remembers your session, and that remembering is stamped with which league it
+belongs to. Rebuild the league and the next visit loads the new rosters instead of quietly
+restoring last week's on top of this week's data. Your scoring settings and your injury
+overrides survive that, because those are about players rather than about which league is
+loaded.
 
 The app shows its data age in the header and repeats it above every verdict, turning red
 past a week. It will not let you forget how old the numbers are.
@@ -235,6 +291,14 @@ Stated plainly, because a projection tool that hides these is worse than no tool
   offers, because no such dataset exists here. Treat it as a ranking, not a forecast.
 - **Expected wins and playoff odds assume an opponent.** With none supplied the simulation
   mirrors your own roster and says so on screen.
+- **The rosters are a hand transcription of week 1.** Every name was verified against the pack
+  and every NFL team against the schedule, so nobody is the wrong player — but a roster that
+  changed after the screenshots were taken is simply not in here until it is re-entered.
+- **Replacement level now depends on how this league drafts, not just on its size.** That is
+  the more accurate answer, and it is also a more opinionated one: the bar at each position is
+  the best unowned player *by this model's ranking*, so a player the model likes more than the
+  room does sets it. QB replacement is Spencer Rattler at 18.4 for exactly that reason. The
+  League tab names the player behind every position's number so you can judge it.
 - **Two source feeds disagree** about a handful of veterans (Diggs, Keenan Allen, Najee Harris
   among them) who appear on the consensus board but not on the 2026 roster file. They are
   carried with their consensus team and flagged rather than dropped or silently trusted.
@@ -257,7 +321,8 @@ pipeline/          Python. Fetches, models, and compiles the data pack.
   build_pack.py    compiles app/data/pack.js
   backtest.py      out-of-sample evaluation
   sanity.py        face-validity leaderboards
-  demo_league.py   generates the demo rosters
+  league.json      the eight real rosters, transcribed by hand
+  build_league.py  resolves them against the pack -> app/data/league.js
   refresh.py       re-fetch what moves, rebuild everything
 
 app/js/            The engines. Plain ES modules, no dependencies.
@@ -282,12 +347,13 @@ scripts/
 ## Running it
 
 ```bash
-npm test                          # 275 tests
+npm test                          # 283 tests
 node scripts/bundle.mjs           # build dist/tradedesk.html
 node scripts/verify-browser.mjs   # end-to-end in a real browser
-node scripts/thesis.mjs           # the three claims, checked against real projections
+node scripts/thesis.mjs           # the three claims, checked against the real rosters
 node scripts/league-edges.mjs     # what this scoring format actually does
 
+python3 pipeline/build_league.py  # re-resolve the rosters -> app/data/league.js
 python3 pipeline/sources.py       # fetch source data (~460MB, cached)
 python3 pipeline/calibrate.py     # refit team coefficients
 python3 pipeline/build_pack.py    # rebuild app/data/pack.js

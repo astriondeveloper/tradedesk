@@ -18,11 +18,16 @@ import { computeReplacement, replacementDetail } from '../app/js/replacement.js'
 
 globalThis.window = globalThis.window || {}
 await import('../app/data/pack.js')
+await import('../app/data/league.js')
 const pack = globalThis.window.TD_PACK
+const league = globalThis.window.TD_LEAGUE
 
+// The real league, and the real rostered set with it -- replacement level here is the best
+// player nobody in the league owns, not a rank baseline standing in for one.
 const LEAGUE = {
-  teams: 12,
-  slots: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1, BEN: 7 },
+  teams: league.teams,
+  slots: { ...league.slots },
+  rostered: new Set(league.rosters.flatMap((t) => t.players.map((pl) => pl.id))),
 }
 
 function ppg(p, cfg = DEFAULT_SCORING) {

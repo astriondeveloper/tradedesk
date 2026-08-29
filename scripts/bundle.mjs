@@ -128,8 +128,8 @@ function build() {
   const html = read(join(APP, 'index.html'))
   const css = read(join(APP, 'css', 'app.css'))
   const pack = read(join(APP, 'data', 'pack.js'))
-  const demoPath = join(APP, 'data', 'demo.js')
-  const demo = existsSync(demoPath) ? read(demoPath) : ''
+  const leaguePath = join(APP, 'data', 'league.js')
+  const league = existsSync(leaguePath) ? read(leaguePath) : ''
 
   const modules = collect(join(APP, 'js', 'main.js'))
   const code = modules
@@ -139,9 +139,9 @@ function build() {
   const body = html
     .replace(/<link rel="stylesheet" href="css\/app\.css">/, `<style>\n${css}\n</style>`)
     .replace(/<script src="data\/pack\.js"><\/script>/, '<!-- data pack inlined below -->')
-    .replace(/<script src="data\/demo\.js"><\/script>/, '')
+    .replace(/<script src="data\/league\.js"><\/script>/, '')
     .replace(/<script type="module" src="js\/main\.js"><\/script>/,
-      `<script>\n${pack}\n${demo}\n</script>\n<script>\n"use strict";\n(function(){\n${code}\n})();\n</script>`)
+      `<script>\n${pack}\n${league}\n</script>\n<script>\n"use strict";\n(function(){\n${code}\n})();\n</script>`)
 
   mkdirSync(dirname(OUT), { recursive: true })
   writeFileSync(OUT, body)

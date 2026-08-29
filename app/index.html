@@ -30,6 +30,7 @@
   <div class="teams">
     <div class="panel">
       <p class="eyebrow"><b>Your team</b><span class="spacer"></span><span id="capA" class="dim"></span></p>
+      <select class="teampick" id="pickA" aria-label="Load a league roster into your side"></select>
       <input class="teamname" id="nameA" value="My team" aria-label="Your team name">
       <div class="rows" id="rowsA"></div>
       <div class="search" style="margin-top:10px">
@@ -45,6 +46,7 @@
 
     <div class="panel">
       <p class="eyebrow"><b>Their team</b><span class="spacer"></span><span id="capB" class="dim"></span></p>
+      <select class="teampick" id="pickB" aria-label="Load a league roster into their side"></select>
       <input class="teamname" id="nameB" value="Their team" aria-label="Their team name">
       <div class="rows" id="rowsB"></div>
       <div class="search" style="margin-top:10px">
@@ -63,7 +65,7 @@
     <p class="eyebrow">
       <b>The trade</b> &nbsp;·&nbsp; tap the arrow on any player to move them
       <span class="spacer"></span>
-      <button class="link" id="loadDemo">Load a demo league</button>
+      <button class="link" id="loadLeague">Reload the league rosters</button>
       <button class="link" id="clearTrade">Clear</button>
     </p>
     <div id="verdict"></div>
@@ -169,6 +171,12 @@
 
 <!-- ------------------------------------------------------------------ LEAGUE -->
 <section class="view" id="view-league" hidden>
+  <div class="panel" id="leaguePanel">
+    <p class="eyebrow"><b>The league this app ships with</b><span class="spacer"></span>
+      <span id="leagueStamp" class="dim"></span></p>
+    <div id="leagueBox"></div>
+  </div>
+
   <div class="panel">
     <p class="eyebrow"><b>Import your ESPN league</b> &nbsp;·&nbsp; rosters, scoring and slots</p>
     <p class="note" style="margin-top:0">
@@ -200,7 +208,7 @@
     <p class="eyebrow"><b>Scoring</b> &nbsp;·&nbsp; every field re-derives the whole app</p>
     <div class="grid g4" style="margin-bottom:14px">
       <label class="fld"><span>Preset</span><select id="preset"></select></label>
-      <label class="fld"><span>Teams</span><input type="number" id="lTeams" value="12" min="2" max="20"></label>
+      <label class="fld"><span>Teams</span><input type="number" id="lTeams" value="8" min="2" max="20"></label>
       <label class="fld"><span>Playoff weeks</span><input id="lPlayoff" value="15,16,17"></label>
       <label class="fld"><span>Playoff weight</span><input type="number" id="lPWeight" value="2" step="0.5" min="1" max="5"></label>
     </div>
@@ -272,7 +280,7 @@
 </div>
 
 <script src="data/pack.js"></script>
-<script src="data/demo.js"></script>
+<script src="data/league.js"></script>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>
