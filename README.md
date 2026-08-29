@@ -336,13 +336,19 @@ being served rather than opened.
 
 Two settings are not in the repo and have to be set once, in the GitHub UI:
 
+- **Settings → General → Default branch must be `main`.** Two GitHub rules have to agree and
+  neither is visible from a workflow file: scheduled runs fire on the *default* branch only,
+  and this repo's `github-pages` environment accepts deployments from `main` only. If those
+  disagree, the daily rebuild runs and then cannot publish. `pages.yml` fails loudly with
+  that exact message rather than letting you find out by noticing the page is a month old.
 - **Settings → Pages → Source: GitHub Actions.** The workflow asks for this itself
-  (`configure-pages` with `enablement: true`) so it usually just works. **Pages on a private
-  repo needs a paid plan**; on a free account, either make the repo public or keep using
-  `dist/tradedesk.html` locally, which is the same app with the same data.
-- **Settings → General → Default branch.** Only the default branch deploys, and GitHub only
-  runs scheduled jobs on the default branch, so the daily refresh follows whatever that is
-  set to.
+  (`configure-pages` with `enablement: true`), so it usually just works. Pages on a *private*
+  repo additionally needs a paid plan; on a free account the repo has to be public, or you
+  keep using `dist/tradedesk.html` locally, which is the same app with the same data.
+
+A refused deploy is easy to misread: it fails in one second with no runner assigned, no steps
+and no logs, which looks like broken infrastructure rather than a wrong setting. The way to
+tell them apart is to dispatch the same workflow on `main` and compare.
 
 ## Data
 
