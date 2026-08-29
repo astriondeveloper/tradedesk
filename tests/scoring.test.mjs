@@ -382,12 +382,17 @@ test('a partial config does not produce NaN', () => {
 
 test('explainLine itemizes the full-PPR WR line', () => {
   const items = explainLine(WR_LINE, fullPPR, 'WR');
-  assert.deepEqual(items, [
-    { label: 'Receiving yards', detail: '110 yd x 0.1', points: 11 },
-    { label: 'Receptions', detail: '8 rec x 1', points: 8 },
-    { label: 'Receiving TDs', detail: '1 x 6', points: 6 },
+  // `points` carries full float precision so the items still add up to scoreLine; the
+  // rounded display value rides along as `pointsText`. 110 * 0.1 is 11.000000000000002 in
+  // IEEE754, so this compares labels and details exactly and points with a tolerance.
+  assert.deepEqual(items.map((i) => [i.label, i.detail, i.pointsText]), [
+    ['Receiving yards', '110 yd x 0.1', '11'],
+    ['Receptions', '8 rec x 1', '8'],
+    ['Receiving TDs', '1 x 6', '6'],
   ]);
-  assert.equal(items.reduce((s, i) => s + i.points, 0), 25);
+  const expected = [11, 8, 6];
+  items.forEach((it, i) => assert.ok(Math.abs(it.points - expected[i]) < 1e-9, it.label));
+  assert.ok(Math.abs(items.reduce((s, i) => s + i.points, 0) - 25) < 1e-9);
 });
 
 test('explainLine sorts by absolute contribution, descending', () => {
@@ -395,11 +400,11 @@ test('explainLine sorts by absolute contribution, descending', () => {
   const mags = items.map((i) => Math.abs(i.points));
   for (let i = 1; i < mags.length; i++) assert.ok(mags[i - 1] >= mags[i], `at ${i}`);
   // A negative is ranked by magnitude, not shoved to the end.
-  assert.deepEqual(items.map((i) => [i.label, i.points]), [
-    ['Receiving TDs', 6],
-    ['Fumbles lost', -4],
-    ['Receptions', 2],
-    ['Receiving yards', 1],
+  assert.deepEqual(items.map((i) => [i.label, i.pointsText]), [
+    ['Receiving TDs', '6'],
+    ['Fumbles lost', '-4'],
+    ['Receptions', '2'],
+    ['Receiving yards', '1'],
   ]);
 });
 
@@ -424,12 +429,14 @@ test('receptions are the visible top contributor for a volume slot receiver', ()
 
 test('explainLine itemizes the QB line', () => {
   const items = explainLine(QB_LINE, fullPPR, 'QB');
-  assert.deepEqual(items, [
-    { label: 'Passing yards', detail: '300 yd x 0.04', points: 12 },
-    { label: 'Passing TDs', detail: '2 x 4', points: 8 },
-    { label: 'Interceptions thrown', detail: '1 x -2', points: -2 },
-    { label: 'Rushing yards', detail: '20 yd x 0.1', points: 2 },
+  assert.deepEqual(items.map((i) => [i.label, i.detail, i.pointsText]), [
+    ['Passing yards', '300 yd x 0.04', '12'],
+    ['Passing TDs', '2 x 4', '8'],
+    ['Interceptions thrown', '1 x -2', '-2'],
+    ['Rushing yards', '20 yd x 0.1', '2'],
   ]);
+  const expected = [12, 8, -2, 2];
+  items.forEach((it, i) => assert.ok(Math.abs(it.points - expected[i]) < 1e-9, it.label));
 });
 
 test('explainLine itemizes the kicker line, grouping misses', () => {

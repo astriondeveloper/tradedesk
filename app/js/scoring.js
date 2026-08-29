@@ -322,8 +322,17 @@ export function scoreLine(line, cfg, pos) {
 /* ---------------------------------------------------------------- explain */
 
 function push(items, label, detail, points) {
-  const p = round6(num(points));
-  items.push({ label, detail, points: p });
+  // `points` is deliberately NOT rounded here. Rounding each item independently makes the
+  // sum of the items drift from scoreLine in proportion to how many items there are --
+  // about 2e-6 on a fifteen-item projected line, which breaks the documented invariant
+  // that the breakdown adds up to the score. Integer stat lines hide it; the fractional
+  // component means that come out of the projection model do not.
+  //
+  // scoreLine rounds once, at the end, so leaving items at full precision keeps
+  // |sum(items) - scoreLine| within a single rounding step. Callers that want a display
+  // string should format at render time; `pointsText` is provided for that.
+  const p = num(points);
+  items.push({ label, detail, points: p, pointsText: String(round6(p)) });
 }
 
 /** Emit an item only when the underlying count or the resulting points are non-zero. */

@@ -432,7 +432,15 @@ export function optimizeLineup(players, slots, ptsOf, options) {
   //                                    legal assignment, and a legal assignment always
   //                                    exists (all slots empty), so BIG is never chosen.
   const m = P + S;
-  const span = 1 + absSum;
+  // Guard the sentinel arithmetic against overflow. BIG is 3*S*span, so a projection
+  // near Number.MAX_VALUE pushes it to Infinity, every cost cell becomes Infinity, and
+  // the augmenting-path loop compares Infinity - Infinity = NaN, never satisfies its exit
+  // condition, and spins forever. That is a hung browser tab rather than a wrong answer,
+  // and this solver runs tens of thousands of times inside a season simulation. Real
+  // fantasy points never approach this, so clamping the span costs nothing and the
+  // solver stays total.
+  const MAX_SPAN = Number.MAX_SAFE_INTEGER / (3 * Math.max(S, 1) + 4);
+  const span = Math.min(1 + absSum, MAX_SPAN);
   const EMPTY = 2 * span;
   const BIG = 3 * S * span + 1;
 

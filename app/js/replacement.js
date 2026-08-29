@@ -156,13 +156,24 @@ function classifySlot(key) {
   if (!c) return null;
   if (BENCH_SLOTS.has(c)) return { kind: 'bench' };
 
-  // A plain position ("QB", "D/ST", "def").
+  // A plain position ("QB", "def"). NOTE the ordering: this must NOT run before the
+  // slash-list branch for keys that contain a slash, because compacting strips the
+  // punctuation and "W/R" -- the Yahoo spelling of an RB/WR flex -- collapses to "WR"
+  // and would be read as a third dedicated receiver slot. The mirror spelling "R/W"
+  // has no such collision, so the same league spelled two ways produced two different
+  // replacement levels (RB off by 24 points in the reported case).
+  // "D/ST" is the one slash-containing key that really is a plain position, and
+  // canonPos handles it, so it is checked explicitly first.
   const cp = canonPos(c);
-  if (Object.prototype.hasOwnProperty.call(POS_RANK, cp)) return { kind: 'pos', pos: cp };
+  const slashed = raw.indexOf('/') >= 0;
+  if (!slashed && Object.prototype.hasOwnProperty.call(POS_RANK, cp)) {
+    return { kind: 'pos', pos: cp };
+  }
+  if (slashed && (cp === 'DST' || cp === 'K')) return { kind: 'pos', pos: cp };
 
   // An explicit slash list ("W/R/T", "WR/TE"). Checked before the alias table so W/R/T
   // reads as WR/RB/TE rather than colliding with the WRT (WR/TE) alias.
-  if (raw.indexOf('/') >= 0) {
+  if (slashed) {
     const parts = raw.split('/');
     const el = [];
     let ok = parts.length > 1;
@@ -427,7 +438,14 @@ export function replacementDetail(pool, league, ptsOf) {
   if (roster) {
     for (const e of entries) if (e.id !== null && roster.has(e.id)) matched++;
   }
-  const expected = Math.max(1, Math.min(cfg.teams * cfg.rosterSize || cfg.teams, entries.length || 1));
+  // Coverage is measured against the LEAGUE's total roster spots, not against the pool
+  // that happens to have been passed in. Clamping the denominator to `entries.length`
+  // made coverage look complete whenever the pool was small -- which is exactly the
+  // situation the guard exists for. A trade evaluation passes two rosters plus a handful
+  // of waiver adds; that is 15% of a 12-team league, and it was reading as 55% and
+  // switching on the free-agent method, quoting "the best unrostered QB" from a pool of
+  // six quarterbacks.
+  const expected = Math.max(1, cfg.teams * (cfg.rosterSize || 1));
   const coverage = roster ? matched / expected : null;
 
   let useFA;
@@ -500,7 +518,12 @@ function describePosition(a) {
     let free = 0;
     for (let i = 0; i < count; i++) {
       const e = list[i];
-      const rostered = e.id !== null && roster.has(e.id);
+      // A player with no id can never match the rostered set, so treating "not matched"
+      // as "on the wire" makes every id-less player look like a free agent. One id-less
+      // D/ST then becomes the whole position's replacement level and zeroes every D/ST's
+      // VOR. Unknown is not the same as available: without an id we cannot say, so the
+      // player is excluded from the free-agent pool rather than assumed into it.
+      const rostered = e.id === null || roster.has(e.id);
       if (!rostered) {
         free++;
         if (faIdx < 0) faIdx = i;
@@ -511,14 +534,26 @@ function describePosition(a) {
   }
 
   // --- user override wins, but is labeled.
-  const ov = a.override && Object.prototype.hasOwnProperty.call(a.override, pos)
-    ? Number(a.override[pos]) : NaN;
+  // Only a real number counts. `Number(x)` is not a sufficient test: Number(null),
+  // Number(''), Number([]) and Number(false) are all 0, so an empty numeric field in the
+  // UI -- stored as null or '' -- would register as a deliberate override of ZERO and
+  // silently set that position's replacement level to nothing, making every player's VOR
+  // equal his raw projection. That is precisely the typed-replacement garbage-in this
+  // module exists to remove, reintroduced through the back door and labeled
+  // "Manual override: 0" so it reads as intentional.
+  const rawOv = a.override && Object.prototype.hasOwnProperty.call(a.override, pos)
+    ? a.override[pos] : undefined;
+  const ov = (typeof rawOv === 'number')
+    ? rawOv
+    : (typeof rawOv === 'string' && rawOv.trim() !== '' ? Number(rawOv) : NaN);
   if (Number.isFinite(ov)) {
     row.method = 'override';
     row.pts = round6(ov);
-    row.note = `Manual override: ${row.pts}. Computed baseline was `
-      + `${useFA && faIdx >= 0 ? row.freeAgentPts : row.rankPts}.`;
-    if (faIdx >= 0) { row.rankUsed = faIdx; row.playerAtRank = list[faIdx].player; }
+    const baseline = useFA && faIdx >= 0 ? row.freeAgentPts : row.rankPts;
+    row.note = `Manual override: ${row.pts}. Computed baseline was ${baseline}.`;
+    // Point at the player the quoted baseline actually refers to. Reporting the best
+    // free agent while quoting the rank baseline gives the UI a contradictory pair.
+    if (useFA && faIdx >= 0) { row.rankUsed = faIdx; row.playerAtRank = list[faIdx].player; }
     else if (rankIdx >= 0) { row.rankUsed = rankIdx; row.playerAtRank = list[rankIdx].player; }
     return row;
   }
