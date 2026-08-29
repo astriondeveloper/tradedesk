@@ -34,10 +34,16 @@ const cls = (n, eps = 0.05) => (n > eps ? 'up' : n < -eps ? 'down' : 'flat')
 
 const byId = new Map(PACK.players.map((p) => [p.id, p]))
 
-// Served from a web server rather than opened as a file. The two cases give the same app
-// but different advice about staleness: the hosted copy rebuilds itself every morning,
-// the downloaded copy is frozen at whatever day you saved it.
-const HOSTED = typeof location !== 'undefined' && /^https?:$/.test(location.protocol)
+// The deployed app, as opposed to the single-file build. Same app, different truth about
+// staleness: the deployment is rebuilt from fresh data every morning, the single file is
+// frozen at whatever moment it was bundled.
+//
+// Protocol alone is not the test. The single file gets served over https as often as it
+// gets opened from disk -- published as an artifact, dropped in a share, sitting at
+// /tradedesk.html next to this very page -- and in all of those it is still a frozen copy.
+// So the bundler stamps TD_STANDALONE on it and that is what settles it.
+const HOSTED = !window.TD_STANDALONE
+  && typeof location !== 'undefined' && /^https?:$/.test(location.protocol)
 
 /* ------------------------------------------------------------------ state */
 

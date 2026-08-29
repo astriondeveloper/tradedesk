@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Full-PPR fantasy football projections and a trade evaluator that does the roster math",
   "scripts": {
-    "test": "node --test \"tests/*.test.mjs\"",
+    "test": "node --test tests/*.test.mjs",
     "bundle": "node scripts/bundle.mjs",
     "build": "python3 pipeline/build_pack.py && node scripts/bundle.mjs",
     "bootstrap": "python3 pipeline/bootstrap.py",
