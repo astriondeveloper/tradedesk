@@ -300,25 +300,97 @@ export function nbShape(mu, cv) {
 }
 
 /**
- * A count with mean `mean` and variance-to-mean ratio `vmr`.
- *
- * vmr >= 1 is Poisson (or overdispersed, which this family cannot express, so Poisson is the
- * honest floor). vmr < 1 is UNDERdispersed and is drawn as Binomial(n, p) with 1 - p = vmr:
- * Binomial has var/mean = 1 - p by definition, so matching is exact up to rounding n to an
- * integer. This is the team-touchdown draw — see the header note on
- * pack.coef.off_td_vs_implied.var_mean_ratio = 0.813.
+ * Standard normal CDF (Abramowitz & Stegun 7.1.26 on erf). Absolute error < 1.5e-7 — three
+ * orders of magnitude below Monte Carlo noise, and monotone, which is what the copula needs.
  */
-export function underdispersedCount(rng, mean, vmr) {
+export function normCdf(z) {
+  const x = z / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * (x < 0 ? -x : x));
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t
+    + 0.254829592) * t * Math.exp(-x * x);
+  return 0.5 * (1 + (x < 0 ? -y : y));
+}
+
+/** Binomial(n, p) quantile by cumulative scan. n is single digits here, so the scan is free. */
+function binomQuantile(u, n, p) {
+  if (n <= 0) return 0;
+  if (p <= 0) return 0;
+  if (p >= 1) return n;
+  let term = Math.pow(1 - p, n);
+  let cum = term;
+  const odds = p / (1 - p);
+  for (let k = 0; k < n; k++) {
+    if (u <= cum) return k;
+    term *= odds * (n - k) / (k + 1);
+    cum += term;
+  }
+  return n;
+}
+
+/**
+ * The team's offensive touchdown count for one game, as a monotone function of a standard
+ * normal `z`. Monotone so it can be tied to the team's game-environment latent: an offense
+ * moving the ball also finds the end zone, and drawing the two independently would break the
+ * single largest source of teammate correlation there is.
+ *
+ * vmr >= 1 falls back to a Poisson quantile (this family cannot express overdispersion, and
+ * inventing it would be worse than declining to). vmr < 1 is UNDERdispersed and is drawn as
+ * Binomial(n, p) with 1 - p = vmr: Binomial has var/mean = 1 - p by definition, so the match
+ * is exact up to rounding n to an integer. See the header note on
+ * pack.coef.off_td_vs_implied.var_mean_ratio = 0.813 — team touchdowns really are tighter
+ * than Poisson, and a Poisson team draw manufactures variance the data says is not there.
+ */
+export function underdispersedCount(z, mean, vmr) {
   const m = Number.isFinite(mean) ? mean : 0;
   if (m <= 0) return 0;
+  const u = normCdf(z);
   const r = Number.isFinite(vmr) ? vmr : 1;
-  if (r >= 1) return poisson(rng, m);
+  if (r >= 1) return poissonQuantile(u, m);
   const p = 1 - r;
   let n = Math.round(m / p);
   if (n < 1) n = 1;
   const pAdj = m / n;
-  if (!(pAdj > 0) || pAdj >= 1) return poisson(rng, m);
-  return binomial(rng, n, pAdj);
+  if (!(pAdj > 0) || pAdj >= 1) return poissonQuantile(u, m);
+  return binomQuantile(u, n, pAdj);
+}
+
+/** Poisson quantile by cumulative scan, capped so a huge mean cannot spin. */
+function poissonQuantile(u, lam) {
+  let term = Math.exp(-lam);
+  let cum = term;
+  const cap = Math.ceil(lam + 10 * Math.sqrt(lam) + 10);
+  for (let k = 0; k < cap; k++) {
+    if (u <= cum) return k;
+    term *= lam / (k + 1);
+    cum += term;
+  }
+  return cap;
+}
+
+/**
+ * Beta-Binomial(n, alpha, beta) by Polya urn — exact, one uniform per trial, no Beta draw.
+ *
+ * This is the pass/rush split of a team's touchdowns, and it is NOT a fixed 62/38 coin. The
+ * pack measures pass_td_share at mean 0.6229 with sd 0.3484: at the level of a single game
+ * the split swings enormously (a two-touchdown game is 0/2, 1/1 or 2/0, never 1.25/0.75).
+ * Method-of-moments on that mean and sd gives alpha ~ 0.58, beta ~ 0.35.
+ *
+ * This matters for more than realism. It makes the PASSING touchdown count OVERdispersed
+ * (var/mean ~ 1.3) even though the team total is underdispersed, and an overdispersed shared
+ * pool is what gives two players thinned from it a POSITIVE covariance. A fixed split leaves
+ * the pool underdispersed, and every quarterback would then be slightly NEGATIVELY correlated
+ * with his own receivers — the exact opposite of the truth.
+ */
+export function betaBinomial(rng, n, alpha, beta) {
+  const N = Math.max(0, Math.floor(n));
+  if (N === 0) return 0;
+  let a = alpha > 0 ? alpha : 1;
+  let b = beta > 0 ? beta : 1;
+  let hits = 0;
+  for (let i = 0; i < N; i++) {
+    if (rng() < a / (a + b)) { hits++; a += 1; } else { b += 1; }
+  }
+  return hits;
 }
 
 /**
@@ -450,6 +522,12 @@ export const CORRELATION = Object.freeze({
   DST_PA_YA: 0.75,
   /** Lognormal loading of D/ST takeaway rates on the opponent latent (negative sign). */
   DST_TAKEAWAY_BETA: 0.12,
+  /**
+   * Correlation between a team's touchdown latent and its scoring-environment latent zEnv.
+   * Team touchdowns and team yards correlate around 0.5-0.6 game to game; an offense that
+   * moves the ball scores. Coupling these is the single largest contributor to stack ceiling.
+   */
+  TD_ENV: 0.55,
 
   /** Derived, for display: same-team QB <-> pass catcher volume correlation. */
   get STACK() { return this.TEAM_ENV + this.PASS_SCRIPT; },
@@ -532,10 +610,30 @@ function packIndex(pack) {
   const td = coef.off_td_vs_implied || {};
   const pts = coef.pass_td_share || {};
 
+  const share = Number.isFinite(pts.mean) ? pts.mean : SIM_CONSTANTS.PASS_TD_SHARE;
+  const shareSd = Number.isFinite(pts.sd) ? pts.sd : 0;
+
+  // Method of moments for the Beta prior on the pass/rush touchdown split. A variance at or
+  // above mean*(1-mean) is not expressible as a Beta, so fall back to a fixed split rather
+  // than emit nonsense parameters.
+  const v = shareSd * shareSd;
+  const spread = share * (1 - share);
+  let alpha = 0;
+  let beta = 0;
+  if (v > 0 && v < spread) {
+    const nu = spread / v - 1;
+    alpha = share * nu;
+    beta = (1 - share) * nu;
+  }
+
   ix = {
     games,
     teamTdVmr: Number.isFinite(td.var_mean_ratio) ? td.var_mean_ratio : SIM_CONSTANTS.TEAM_TD_VMR,
-    passTdShare: Number.isFinite(pts.mean) ? pts.mean : SIM_CONSTANTS.PASS_TD_SHARE,
+    passTdShare: share,
+    // Large concentration == effectively a fixed split, which is the degenerate fallback.
+    splitAlpha: alpha > 0 ? alpha : share * 1e6,
+    splitBeta: beta > 0 ? beta : (1 - share) * 1e6,
+    splitFromData: alpha > 0,
   };
   packCache.set(pack, ix);
   return ix;
@@ -750,6 +848,8 @@ function planOffense(plan, P, pack) {
     rushMean: teamTd * (1 - ix.passTdShare),
     vmr: ix.teamTdVmr,
     passShare: ix.passTdShare,
+    splitAlpha: ix.splitAlpha,
+    splitBeta: ix.splitBeta,
   };
   if (!teamTd) {
     plan.note = `No team touchdown baseline for ${plan.team}; touchdowns drawn independently `
@@ -831,13 +931,22 @@ function teamEnv(env, rng, plan) {
   return e;
 }
 
-/** Draw (once per team-week) the team touchdown count and split it pass/rush. */
+/**
+ * Draw (once per team-week) the team's offensive touchdown count and split it pass/rush.
+ *
+ * The count is a monotone function of a latent that is itself correlated with the team's
+ * scoring-environment latent zEnv (strength: CORRELATION.TD_ENV). Teams that move the ball
+ * score touchdowns; drawing the two independently is the single biggest way to under-couple
+ * a stack. The split is Beta-Binomial, not a fixed coin — see `betaBinomial`.
+ */
 function teamTouchdowns(e, rng, plan) {
   if (e.td !== null) return e;
   const t = plan.team_td;
   if (!t || !(t.mean > 0)) { e.td = 0; e.tdPass = 0; e.tdRush = 0; return e; }
-  const total = underdispersedCount(rng, t.mean, t.vmr);
-  const passTd = binomial(rng, total, t.passShare);
+  const rho = CORRELATION.TD_ENV;
+  const zTd = rho * e.zEnv + Math.sqrt(Math.max(0, 1 - rho * rho)) * rng.normal();
+  const total = underdispersedCount(zTd, t.mean, t.vmr);
+  const passTd = betaBinomial(rng, total, t.splitAlpha, t.splitBeta);
   e.td = total;
   e.tdPass = passTd;
   e.tdRush = total - passTd;

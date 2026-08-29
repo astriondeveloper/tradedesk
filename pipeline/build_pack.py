@@ -208,13 +208,32 @@ def project_dst(team_hist, games, sched, coef) -> dict:
     return out
 
 
+# Indoor kicking, fitted rather than guessed. Regressing kicker points (scored under this
+# league's exact distance rules) on implied team total and an indoor flag, over 2,716
+# kicker-games from 2021-2025:
+#
+#     points = 4.305 + 0.1482 * implied_total + 0.828 * indoor
+#              (t = 6.32 on the total, t = 4.30 on indoor)
+#
+# So the dome is worth +0.83 points a game on its own, on top of whatever the offense is
+# worth -- and the whole kicker position only spans about 1.7 points, so that is most of
+# the available spread. It arrives through two channels, both measured:
+#   attempts   2.045 per game indoors vs 1.879 outdoors  (+8.8%)
+#   make rate  +0.1pp at 30-39, +3.4pp at 40-49, +4.3pp at 50-59 -- weather costs distance,
+#              not short kicks, which is exactly what a -1 miss penalty punishes.
+# The first version of this used a flat 1.04 attempt bump and a 2% make-rate bump, which
+# reproduced only +0.12 points a game -- about an eighth of the real effect.
+DOME_ATT_MULT = 1.088
+DOME_MAKE_BONUS = {"30_39": 0.001, "40_49": 0.034, "50_59": 0.043, "60": 0.043}
+
+
 def project_kickers(uni, hist, sched, fg_profile, coef) -> dict:
     """Kicker component projection.
 
     Field goal attempts scale with how often an offense stalls in scoring range, PATs with
     how often it finishes. Distance mix comes from the league profile; make rates by
-    bucket come from real play-by-play. Dome games get a small bump, which matters here
-    because this league pays 6 for a 60-yarder and -1 for a miss.
+    bucket come from real play-by-play. Indoor games get the fitted bump above, which
+    matters here because this league pays 6 for a 60-yarder and charges 1 for a miss.
     """
     ks = uni[uni["pos"] == "K"]
     kh = hist[hist["pos"] == "K"]
@@ -249,13 +268,16 @@ def project_kickers(uni, hist, sched, fg_profile, coef) -> dict:
         wk = {}
         for w in weeks:
             dome = str(w.get("roof", "")).lower() in ("dome", "closed")
-            fga = fga_of(w["implied"]) * (1.04 if dome else 1.0)
+            fga = fga_of(w["implied"]) * (DOME_ATT_MULT if dome else 1.0)
             mu = {}
             for b, share in dist_share.items():
                 att = fga * (share / tot_share)
                 rate = make_rate.get(b, 0.85)
-                # Indoors removes wind; the effect is real but small.
-                rate = min(0.99, rate * (1.02 if dome and b in ("40_49", "50_59", "60") else 1.0))
+                # Indoors removes wind. Added in percentage points, not as a multiplier:
+                # the measured gain is concentrated in long attempts and is close to zero
+                # inside 40 yards, which a multiplicative bump would smear the wrong way.
+                if dome:
+                    rate = min(0.99, rate + DOME_MAKE_BONUS.get(b, 0.0))
                 mu[f"fgm_{b}"] = r2(att * rate)
                 mu[f"fgx_{b}"] = r2(att * (1 - rate))
             mu["xpm"] = r2(xp_of(w["implied"]) * 0.96)

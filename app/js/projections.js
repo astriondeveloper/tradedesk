@@ -101,12 +101,24 @@
  *     import * as sim from './sim.js';
  *     useSim(sim);                       // or: project(p, { sim, ... })
  *
- * The adapter calls `engine.simSeason(spec)` (falling back to `engine.simulate`, or the
- * engine itself if it is a function) with
- *     { player, weeks, cfg, pack, view, weeklyMu, iters, seed, quantiles }
- * and accepts either a result object carrying `mean`/`sd` (or `p10`/`p50`/`p90`), or an array
- * of season-total samples. Anything else — a throw, a NaN, a wrong shape — falls back to the
- * closed form and is reported in `result.note`. A sim that cannot be trusted is not used.
+ * Two adapter paths, tried in this order:
+ *
+ *   1. `engine.simPlayerWeek(player, week, cfg, pack, rng, iters)` — what `sim.js` exposes for
+ *      a single player. Each requested week is drawn and the sample streams are added
+ *      index-wise. Weeks are independent for one player, so the sum is a valid Monte Carlo of
+ *      the total, and it inherits the engine's seeded RNG (`engine.makeRng(seed)` when
+ *      present), so the result is reproducible. Pass `simMode: 'season'` to skip this path.
+ *
+ *   2. `engine.simSeason(spec)` — or `engine.simulate(spec)`, or the engine itself if it is a
+ *      function — called with
+ *          { player, weeks, cfg, pack, view, weeklyMu, iters, seed, quantiles }
+ *      and accepting either a result object carrying `mean`/`sd` (or `p10`/`p50`/`p90`), or an
+ *      array of season-total samples.
+ *
+ * Anything else — a throw, a NaN, a wrong shape, mismatched sample counts — falls back to the
+ * closed form and is reported in `result.note`. A sim that cannot be trusted is not used. When
+ * a simulation IS adopted, `result.closedForm` keeps the analytic answer alongside it so the
+ * two can be compared rather than one silently replacing the other.
  *
  * ---------------------------------------------------------------------------
  * Notes for callers
@@ -896,8 +908,7 @@ function closedForm(player, o, cfg, view, weeks) {
   };
 
   if (player === null || typeof player !== 'object') {
-    res.note = 'No player supplied.';
-    return res;
+    return bail(res, weeks, wantPerWeek, 'No player supplied.');
   }
 
   const cv = Math.max(0, num2(player.cv, 0.42));
@@ -909,27 +920,28 @@ function closedForm(player, o, cfg, view, weeks) {
   const plan = (isK || isDst) ? null : planFor(player);
 
   if (!isK && !isDst && plan === null) {
-    res.note = `${res.name || 'This player'} has no component means in the pack, so there is `
-      + 'nothing to project. Enter a manual projection rather than trusting a zero.';
-    return res;
+    return bail(res, weeks, wantPerWeek,
+      `${res.name || 'This player'} has no component means in the pack, so there is nothing to `
+      + 'project. Enter a manual projection rather than trusting a zero.');
   }
   if (isK && (!player.kWeeks || typeof player.kWeeks !== 'object')) {
-    res.note = 'No per-week kicking line in the pack for this kicker.';
-    return res;
+    return bail(res, weeks, wantPerWeek,
+      `No per-week kicking line in the pack for ${res.name || 'this kicker'}. `
+      + 'Enter a manual projection rather than trusting a zero.');
   }
   if (isDst && (!player.dstWeeks || typeof player.dstWeeks !== 'object')) {
-    res.note = 'No per-week defensive line in the pack for this D/ST.';
-    return res;
+    return bail(res, weeks, wantPerWeek,
+      `No per-week defensive line in the pack for ${res.name || 'this D/ST'}. `
+      + 'Enter a manual projection rather than trusting a zero.');
   }
 
   const team = typeof player.team === 'string' ? player.team : '';
   const teamGames = view._games.get(team);
   if (!teamGames) {
-    res.note = `No 2026 schedule for team "${team || '?'}", so no week can be projected. `
-      + 'Assign the player to a team or enter a manual projection.';
-    if (wantPerWeek) for (let i = 0; i < weeks.length; i++) perWeek.push(byeRow(weeks[i]));
-    res.byes = weeks.slice();
-    return res;
+    const season = num(view.meta.season);
+    return bail(res, weeks, wantPerWeek,
+      `No ${season > 0 ? `${season} ` : ''}schedule for team "${team || '?'}", so no week can `
+      + 'be projected. Assign the player to a team or enter a manual projection.');
   }
 
   let scratch = null;
@@ -1056,6 +1068,19 @@ function closedForm(player, o, cfg, view, weeks) {
   return res;
 }
 
+/**
+ * Nothing is projectable. Report zero for every requested week WITH the reason attached —
+ * contract section 10: the app says so rather than guessing. The result keeps the same shape
+ * as a real projection so callers never branch on it.
+ */
+function bail(res, weeks, wantPerWeek, note) {
+  res.note = note;
+  res.games = 0;
+  res.byes = weeks.slice();
+  if (wantPerWeek) for (let i = 0; i < weeks.length; i++) res.perWeek.push(byeRow(weeks[i], null, note));
+  res.dist = { kind: 'point', mean: 0, sd: 0 };
+  return res;
+}
 
 function byeRow(w, game, why) {
   return {
@@ -1141,6 +1166,38 @@ function resolveEngine(o) {
 }
 
 /**
+ * Preferred path: draw each week with the engine's per-player-week entry point and add the
+ * sample streams together. Weeks are independent for one player, so index-wise addition of
+ * independently drawn streams is a valid Monte Carlo of the season total — and it inherits
+ * the engine's seeded RNG, so the answer is reproducible.
+ *
+ * Returns the summed samples, or null if the engine's answer does not validate. Null always
+ * means "fall back to the closed form"; a projection that might be nonsense is worse than one
+ * that is merely approximate.
+ */
+function runPerWeekSim(engine, player, weeks, cfg, view, iters, seed) {
+  const fn = engine.simPlayerWeek;
+  if (typeof fn !== 'function') return null;
+  const rng = typeof engine.makeRng === 'function' ? engine.makeRng(seed) : undefined;
+
+  let totals = null;
+  for (let i = 0; i < weeks.length; i++) {
+    const r = fn.call(engine, player, weeks[i], cfg, view.pack, rng, iters);
+    if (r === null || typeof r !== 'object') return null;
+    const s = r.samples;
+    if (!s || typeof s.length !== 'number' || s.length < 2) return null;
+    if (totals === null) totals = new Float64Array(s.length);
+    else if (s.length !== totals.length) return null;
+    for (let j = 0; j < totals.length; j++) {
+      const v = Number(s[j]);
+      if (!Number.isFinite(v)) return null;
+      totals[j] += v;
+    }
+  }
+  return totals;
+}
+
+/**
  * The exact projection.
  *
  * Delegates to a wired-in Monte Carlo engine when one is available and its answer validates;
@@ -1156,8 +1213,37 @@ export function project(player, opts) {
   const weeks = resolveWeeks(o.weeks, view);
   const base = closedForm(player, o, cfg, view, weeks);
 
+  const engine = o.sim !== undefined ? o.sim : _sim;
+  if (engine === null || engine === undefined || engine === false || base.games === 0) return base;
+
+  const iters = Math.max(1, Math.trunc(num2(o.iters, 4000)));
+  const seed = o.seed !== undefined ? o.seed : 1;
+
+  // 1. The per-player-week path, which is what `sim.js` actually exposes for one player.
+  if (typeof engine === 'object' && o.simMode !== 'season'
+      && typeof engine.simPlayerWeek === 'function') {
+    let totals = null;
+    try {
+      totals = runPerWeekSim(engine, player, weeks, cfg, view, iters, seed);
+    } catch (err) {
+      return Object.assign(base, {
+        note: appendNote(base.note, `Simulation engine threw (${describeErr(err)}); `
+          + 'the closed-form projection is shown instead.'),
+      });
+    }
+    if (totals !== null) {
+      const stats = fromSamples(totals);
+      if (stats !== null) return applyStats(base, stats, 'sim');
+    }
+    return Object.assign(base, {
+      note: appendNote(base.note, 'Simulation engine returned an unusable per-week result; '
+        + 'the closed-form projection is shown instead.'),
+    });
+  }
+
+  // 2. A whole-range engine: `simSeason(spec)`, `simulate(spec)`, or a bare function.
   const run = resolveEngine(o);
-  if (run === null || base.games === 0) return base;
+  if (run === null) return base;
 
   let raw;
   try {
@@ -1168,8 +1254,8 @@ export function project(player, opts) {
       pack: view.pack,
       view,
       weeklyMu: (pl, w) => weeklyMu(pl, w, view),
-      iters: Math.max(1, Math.trunc(num2(o.iters, 4000))),
-      seed: o.seed !== undefined ? o.seed : 1,
+      iters,
+      seed,
       quantiles: [0.1, 0.5, 0.9],
     });
   } catch (err) {

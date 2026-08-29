@@ -994,6 +994,106 @@ test('an untrustworthy sim engine is refused, and the refusal is reported', () =
   }
 });
 
+test('an engine exposing simPlayerWeek is driven week by week and summed', () => {
+  const wr = topAt('WR', 1)[0].player;
+  const calls = [];
+  const N = 500;
+  const engine = {
+    makeRng(seed) { const r = () => 0.5; r.seed = seed; return r; },
+    simPlayerWeek(player, week, cfg, pack, rng, iters) {
+      calls.push({ player, week, cfg, pack, rng, iters });
+      const samples = new Float64Array(N);
+      // Week w contributes exactly w points in every draw, so the total is predictable.
+      for (let i = 0; i < N; i++) samples[i] = week;
+      return { mean: week, sd: 0, samples };
+    },
+  };
+
+  const weeks = scheduledWeeks(wr.team).slice(0, 4);
+  const r = project(wr, { pack: VIEW, cfg: FULL, sim: engine, weeks, iters: 321, seed: 7 });
+
+  assert.equal(r.method, 'sim');
+  assert.equal(calls.length, weeks.length, 'every requested week must be drawn');
+  assert.deepEqual(calls.map((c) => c.week), weeks);
+  assert.equal(calls[0].player, wr);
+  assert.equal(calls[0].cfg, FULL);
+  assert.equal(calls[0].pack, PACK);
+  assert.equal(calls[0].iters, 321);
+  assert.equal(calls[0].rng.seed, 7, 'the engine RNG must be seeded from opts.seed');
+  assert.ok(calls.every((c) => c.rng === calls[0].rng), 'one RNG stream across the weeks');
+
+  const expected = weeks.reduce((a, w) => a + w, 0);
+  assert.ok(close(r.mean, expected, 1e-6), `${r.mean} != ${expected}`);
+  assert.equal(r.sd, 0);
+  assert.ok(Number.isFinite(r.closedForm.mean));
+
+  // simMode 'season' skips the per-week path entirely.
+  calls.length = 0;
+  const seasonEngine = { ...engine, simSeason: () => ({ mean: 9, sd: 1 }) };
+  const r2 = project(wr, { pack: VIEW, cfg: FULL, sim: seasonEngine, weeks, simMode: 'season' });
+  assert.equal(r2.mean, 9);
+  assert.equal(calls.length, 0);
+});
+
+test('a per-week engine that misbehaves is refused too', () => {
+  const wr = topAt('WR', 1)[0].player;
+  const good = projectFast(wr, { pack: VIEW, cfg: FULL });
+  const weeks = scheduledWeeks(wr.team).slice(0, 3);
+
+  const cases = [
+    ['no samples', { simPlayerWeek: () => ({ mean: 10, sd: 2 }) }],
+    ['ragged samples', {
+      simPlayerWeek: (p, w) => ({ samples: new Float64Array(w === weeks[0] ? 10 : 11) }),
+    }],
+    ['NaN samples', { simPlayerWeek: () => ({ samples: [NaN, NaN, NaN] }) }],
+    ['throws', { simPlayerWeek: () => { throw new Error('nope'); } }],
+    ['returns nothing', { simPlayerWeek: () => null }],
+  ];
+  for (const [label, sim] of cases) {
+    const r = project(wr, { pack: VIEW, cfg: FULL, sim, weeks });
+    assert.equal(r.method, 'closed-form', `${label}: should have fallen back`);
+    assert.ok(r.note.length > 0, `${label}: the fallback must be explained`);
+    assert.ok(Number.isFinite(r.mean));
+  }
+  assert.ok(good.mean > 0);
+});
+
+test('the real sim.js, when present, plugs straight in', async () => {
+  let sim = null;
+  try {
+    sim = await import('../app/js/sim.js');
+  } catch {
+    return; // sim.js is not built yet; project() is the closed form and that is contractual.
+  }
+  if (!sim || typeof sim.simPlayerWeek !== 'function') return;
+
+  const wr = topAt('WR', 1)[0].player;
+  const weeks = scheduledWeeks(wr.team).slice(0, 5);
+  const closed = projectFast(wr, { pack: VIEW, cfg: FULL, weeks });
+  const r = project(wr, { pack: VIEW, cfg: FULL, sim, weeks, iters: 600, seed: 11 });
+
+  // Either it was adopted, or it was refused and said so. Both are correct outcomes; what is
+  // NOT allowed is a silently wrong number.
+  assert.ok(Number.isFinite(r.mean));
+  assert.ok(r.p10 <= r.p50 + EPS && r.p50 <= r.p90 + EPS);
+  if (r.method === 'sim') {
+    assert.ok(r.mean > 0, 'a simulated elite WR should score');
+    // The closed form and the simulation are two roads to the same mean. They will not agree
+    // exactly (thresholds and skew differ), but a large gap means one of them is wrong.
+    const rel = Math.abs(r.mean - closed.mean) / closed.mean;
+    assert.ok(rel < 0.3,
+      `sim (${r.mean}) and closed form (${closed.mean}) disagree by ${(rel * 100).toFixed(0)}%`);
+    assert.ok(r.sd > 0);
+    // Reproducible: the same seed must give the same answer.
+    const again = project(wr, { pack: VIEW, cfg: FULL, sim, weeks, iters: 600, seed: 11 });
+    assert.equal(again.mean, r.mean);
+    assert.equal(again.p90, r.p90);
+  } else {
+    assert.equal(r.method, 'closed-form');
+    assert.ok(r.note.length > 0);
+  }
+});
+
 test('useSim registers and unregisters a default engine', () => {
   const wr = topAt('WR', 1)[0].player;
   try {
@@ -1052,19 +1152,27 @@ test('a season band is wide enough to be honest and tight enough to be useful', 
 });
 
 test('touchdown dependence shows up as volatility, receptions as stability', () => {
-  // Two synthetic receivers with the same weekly mean under full PPR: one gets there on
-  // volume, the other on touchdowns. The volume one must be the steadier week.
+  // Two synthetic receivers, same team, same week, same usage CV. One earns his points on
+  // reception volume, the other on touchdowns. Full PPR is supposed to make that difference
+  // legible, so the touchdown-dependent one must carry the wider band per point of mean.
   const team = 'KC';
   const week = scheduledWeeks(team)[0];
-  const volume = { id: 'v', name: 'Volume', pos: 'WR', team, bye: VIEW.byeOf(team), avail: 1, cv: 0.35,
-    mu: { tgt: 12, rec: 9, reyd: 96, retd: 0.15 } };
-  const tdDep = { id: 't', name: 'Touchdowns', pos: 'WR', team, bye: VIEW.byeOf(team), avail: 1, cv: 0.35,
-    mu: { tgt: 5, rec: 3, reyd: 40, retd: 1.03 } };
+  const base = { pos: 'WR', team, bye: VIEW.byeOf(team), avail: 1, cv: 0.35 };
+  const volume = { ...base, id: 'v', name: 'Volume', mu: { tgt: 12, rec: 9, reyd: 96, retd: 0.15 } };
+  const tdDep = { ...base, id: 't', name: 'Touchdowns', mu: { tgt: 5, rec: 3, reyd: 40, retd: 1.6 } };
 
   const a = weeklyProjection(volume, week, { pack: VIEW, cfg: FULL });
   const b = weeklyProjection(tdDep, week, { pack: VIEW, cfg: FULL });
-  assert.ok(Math.abs(a.mean - b.mean) < 2.5,
-    `the two fixtures should project similarly: ${a.mean} vs ${b.mean}`);
-  assert.ok(b.sd > a.sd * 1.15,
-    `the touchdown-dependent receiver must be the volatile one: ${b.sd} vs ${a.sd}`);
+  assert.ok(a.mean > 0 && b.mean > 0);
+  assert.ok((b.sd / b.mean) > (a.sd / a.mean) * 1.3,
+    'the touchdown-dependent receiver must be the volatile one: '
+    + `${(b.sd / b.mean).toFixed(3)} vs ${(a.sd / a.mean).toFixed(3)}`);
+
+  // And in standard scoring the volume receiver loses far more of his value than the
+  // touchdown one does. That is the reception share of value, contract section 9.
+  const std = PRESETS.standard;
+  const aStd = weeklyProjection(volume, week, { pack: VIEW, cfg: std });
+  const bStd = weeklyProjection(tdDep, week, { pack: VIEW, cfg: std });
+  assert.ok((a.mean - aStd.mean) / a.mean > (b.mean - bStd.mean) / b.mean * 1.5,
+    'the volume receiver is the one full PPR is paying for');
 });
