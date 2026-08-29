@@ -18,7 +18,7 @@ name: pages
 
 on:
   push:
-    branches: ['**']
+    branches: [main]
     paths-ignore:
       - 'README.md'
       - 'docs/**'
@@ -47,10 +47,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Two GitHub rules have to line up for the daily rebuild to publish, and when they do
+  # not, nothing about the failure says why:
+  #
+  #   * Scheduled workflows run on the DEFAULT branch and nowhere else.
+  #   * This repo's `github-pages` environment accepts deployments from `main` and
+  #     nowhere else.
+  #
+  # Measured, not assumed. The identical workflow deployed from `main` and was refused
+  # from a non-main default branch -- refused in one second, with no runner assigned, no
+  # steps and no logs, which reads like infrastructure being broken rather than like a
+  # setting being wrong. It cost an hour and a wrong diagnosis (the repo's visibility)
+  # before the two-run comparison settled it.
+  #
+  # So if the default branch is not `main`, fail here and say so, rather than building
+  # for two minutes and dying at the deploy, or skipping quietly and leaving the page to
+  # rot while every run shows green.
+  guard:
+    if: github.ref_name != 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wrong branch for a Pages deploy
+        run: |
+          echo "::error title=Pages cannot deploy from ${{ github.ref_name }}::The github-pages environment accepts deployments only from 'main'. Set Settings -> General -> Default branch to 'main' so the daily refresh both runs and publishes."
+          exit 1
+
   build:
-    # Only the default branch publishes. Feature branches still get the full test suite
-    # from tests.yml; they just do not get to overwrite the live site.
-    if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch
+    if: github.ref_name == 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
