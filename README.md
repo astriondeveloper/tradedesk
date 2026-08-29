@@ -3,9 +3,12 @@
 A full-PPR fantasy football projection system and a trade evaluator that does the roster math
 public analyzers skip.
 
-Open `dist/tradedesk.html` in a browser. No server, no network, no install — the data is baked
-in, including all eight rosters in the league. It opens on your team against whoever you play
-this week.
+**Live: [astriondeveloper.github.io/tradedesk](https://astriondeveloper.github.io/tradedesk/)** —
+rebuilt from fresh data every morning.
+
+Or open `dist/tradedesk.html` in a browser. No server, no network, no install — the data is
+baked in, including all eight rosters in the league. Either way it opens on your team against
+whoever you play this week.
 
 ---
 
@@ -136,8 +139,53 @@ evaluates the balanced deals at all. Every rival roster is priced with the injur
 the league file carries, not at full availability, so a search does not quietly value a
 questionable player as healthy just because you have never opened his team.
 
-## The scoring
+## Watching a trade you are not in
 
+Two rivals trading changes your season without touching your roster, because standings are
+relative. Load any two teams into the panels — you do not have to be one of them — tell the
+app which team is yours, and the **League impact** board scores every roster in the league the
+same way, before and after.
+
+The number that matters is not their point swing. It is this: **a trade does not conserve
+league strength.** Players move to rosters where they actually start, or stop starting, so the
+total goes up or down. A deal where both sides gain is the classic good trade, and it is
+exactly the case where everyone else just lost ground without being consulted.
+
+The first version of this reported change in your gap to the leader, which was wrong in a way
+worth recording: that number is exactly `0.00` unless the leader happens to be one of the two
+teams trading, which is most trades. The headline is now the change in the average strength of
+the field you have to beat, which moves whenever anything moves. Your rank change is reported
+alongside it, because a reshuffle can push a rival past you at constant field strength.
+
+Underneath, **Your openings** reads the aftermath. A trade leaves both sides lopsided — that is
+what trades do — so the app scores every roster's shape by position and finds where a rival's
+new hole meets your surplus. Fits are ranked on the *smaller* half, because a trade needs both:
+your spare receiver is worth nothing to a team already three deep there. This is the actionable
+part. The deal you just watched tells you who needs what before they have advertised it.
+
+## The interface
+
+Dark, dense, single-theme, and built to be operated rather than read.
+
+- **Elevation is colour, not shadow.** Three surfaces — `#0B0F19`, `#111827`, `#1F2937` —
+  separated by 1px hairlines at `rgba(255,255,255,0.08)`. There is not one `box-shadow` used
+  for depth. Shadows blur an edge; a technical panel wants a hard one.
+- **Dual fonts, enforced.** Inter for anything read as language, IBM Plex Mono for every
+  number, on tabular figures so a column of digits compares by eye. Both are embedded as
+  base64 rather than linked, so the downloaded single file and the hosted page render
+  identically — a webfont link would fail on `file://`, and the downloaded copy is the one
+  people take to a draft on hotel wifi.
+- **An 8px grid.** Every margin, padding and gap is a multiple of 8, or of 4 for genuinely
+  sub-unit insets.
+- **Telemetry alignment.** Identity left, numbers right, in roster rows and data tables alike,
+  so the eye learns one contract and reuses it everywhere.
+- **Selection is a 2px amber rule** down the left edge with a low-opacity wash falling away to
+  the right — not a glowing border, which at this density reads as an error state.
+- **Amber means "look here". Green and red mean better and worse.** They never mix, and both
+  are muted to enterprise-financial intensity so the data is never shouted at.
+
+## The league it defaults to
+## The scoring
 Full PPR, exactly as configured:
 
 | | |
@@ -238,23 +286,38 @@ The model wins MAE at every position. Two things to read honestly:
 
 ## Does it stay current?
 
-**No, not by itself, and that is a design choice.** The app ships a static data pack and
-makes no network calls at runtime, so it works offline, holds no credentials, and cannot
-break because a feed changed. The cost is that it knows nothing that happened after it was
-built.
+**The hosted page does. A copy you download does not, and it says so on screen.**
 
-The rosters have the same problem, and it is a separate one: they are a snapshot of week 1.
-A waiver claim on Tuesday is not in here until somebody puts it there.
+The app itself makes no network calls at runtime — it ships a static data pack, so it works
+offline, holds no credentials, and cannot break because a feed changed mid-week. Freshness
+comes from rebuilding the pack, not from the page phoning home.
 
-Four ways to deal with all of that, in order of effort:
+So the pack gets rebuilt for you. Every morning at 11:00 UTC, GitHub Actions re-fetches every
+volatile source — injury reports, the consensus board, depth charts, rosters, last week's box
+scores, newly posted betting lines — refits the projections, verifies the result in a real
+browser, and redeploys. Seven seasons of play-by-play do not change and stay cached, which is
+what keeps the job to a few minutes instead of half an hour.
 
+Two things about that are worth knowing:
+
+- **A failed refresh does not ship a broken page.** If a feed is down or a schema moved, the
+  job falls back to the pack committed in the repo and deploys that. If the browser check
+  fails, nothing deploys at all and the previous day's page stays up. Either way the age
+  stamp in the header tells the truth rather than the intention.
+- **The rebuilt pack is never committed back.** It is 2MB and it changes daily; committing it
+  would add roughly 700MB a year of history for something reproducible in a minute.
+
+The rosters are a separate problem, and no rebuild fixes them: they are a hand transcription
+of week 1, so a waiver claim on Tuesday is not in here until somebody puts it there.
+
+Four ways to deal with what even a morning rebuild cannot know, in order of effort:
 1. **Mark a status on the player's row.** Healthy / Questionable / Out / IR. This flows
    through availability into every projection, lineup, and trade verdict immediately, needs
    no network, and is the right tool for news that broke an hour ago. It is disclosed in the
    verdict so a changed number is never unexplained.
-2. **Add and drop players on the Trade tab.** The team picker flips to "custom roster" the
-   moment a side stops matching the shipped one, so an edited roster never masquerades as the
-   real thing.
+2. **Add and drop players on the Trade tab.** Good for one session. The panels hold whatever
+   you leave in them, and the team loader puts a league roster back when you want to start
+   over.
 3. **Edit `pipeline/league.json` and re-run `python3 pipeline/build_league.py`.** A second or
    two. This is the right move once a real transaction has happened, because it fixes the
    roster everywhere — Trade, Propose, replacement level — instead of in one session.
@@ -262,7 +325,8 @@ Four ways to deal with all of that, in order of effort:
    injury reports, the consensus board, depth charts, rosters, last week's box scores, and
    newly posted betting lines — then rebuilds the pack, re-resolves the league against it, and
    rebuilds the bundle. Seven seasons of play-by-play do not change and are left alone.
-   Tuesday or Wednesday is the right time, after the injury reports land.
+   Tuesday or Wednesday is the right time, after the injury reports land. Only needed for a
+   local copy — the hosted page already runs this for itself.
 
 Importing your ESPN league again also works, and brings ESPN's own injury designations with it.
 An import overrides the shipped rosters for as long as it is loaded.
@@ -274,7 +338,8 @@ overrides survive that, because those are about players rather than about which 
 loaded.
 
 The app shows its data age in the header and repeats it above every verdict, turning red
-past a week. It will not let you forget how old the numbers are.
+past a week. It will not let you forget how old the numbers are. On the hosted page an age
+above a day means the morning rebuild failed, not that it is waiting on you.
 
 ## Limitations
 
@@ -326,7 +391,12 @@ pipeline/          Python. Fetches, models, and compiles the data pack.
   sanity.py        face-validity leaderboards
   league.json      the eight real rosters, transcribed by hand
   build_league.py  resolves them against the pack -> app/data/league.js
+  bootstrap.py     fetch the large frozen inputs a clean checkout is missing
   refresh.py       re-fetch what moves, rebuild everything
+
+app/css/
+  fonts.css        Inter + IBM Plex Mono, base64 so the offline build matches the hosted one
+  app.css          the design system
 
 app/js/            The engines. Plain ES modules, no dependencies.
   scoring.js       components -> points, any format
@@ -338,6 +408,7 @@ app/js/            The engines. Plain ES modules, no dependencies.
   draft.js         live draft board
   espn.js          ESPN league import
   finder.js        trade search + acceptance model
+  scout.js         league board, roster shape, openings
   main.js          UI
 
 scripts/
@@ -345,17 +416,23 @@ scripts/
   verify-browser.mjs  end-to-end check in headless Chromium
   thesis.mjs          proves the three claims against the real data
   league-edges.mjs    measures this format's actual effects
+
+.github/workflows/
+  tests.yml           unit tests, sanity, and the browser check on every push
+  pages.yml           deploys to Pages; on a schedule, refits from fresh data first
 ```
 
 ## Running it
 
 ```bash
-npm test                          # 283 tests
+npm test                          # 298 tests
 node scripts/bundle.mjs           # build dist/tradedesk.html
-node scripts/verify-browser.mjs   # end-to-end in a real browser
+node scripts/verify-browser.mjs   # end-to-end, file:// and served over http
 node scripts/thesis.mjs           # the three claims, checked against the real rosters
 node scripts/league-edges.mjs     # what this scoring format actually does
 
+pip install -r pipeline/requirements.txt
+python3 pipeline/bootstrap.py     # fetch everything a clean checkout lacks (~460MB, cached)
 python3 pipeline/build_league.py  # re-resolve the rosters -> app/data/league.js
 python3 pipeline/sources.py       # fetch source data (~460MB, cached)
 python3 pipeline/calibrate.py     # refit team coefficients
@@ -365,7 +442,32 @@ python3 pipeline/refresh.py       # weekly: refresh volatile data and rebuild
 ```
 
 Rebuilding the pack needs Python 3.11 with pandas, numpy and pyarrow. The app itself needs
-nothing.
+nothing. Run `bootstrap.py` before the first build: the play-by-play and the historical
+consensus board are large and frozen, so they sit outside the refresh loop, and without them
+the red-zone and market-blend models silently switch themselves off.
+
+## Hosting it
+
+Push to the default branch and `pages.yml` deploys. It serves `app/` as written — real ES
+modules, the pack as a separate cacheable file — with the single-file build alongside it at
+`/tradedesk.html` for offline use, which the page offers as a download when it notices it is
+being served rather than opened.
+
+Two settings are not in the repo and have to be set once, in the GitHub UI:
+
+- **Settings → General → Default branch must be `main`.** Two GitHub rules have to agree and
+  neither is visible from a workflow file: scheduled runs fire on the *default* branch only,
+  and this repo's `github-pages` environment accepts deployments from `main` only. If those
+  disagree, the daily rebuild runs and then cannot publish. `pages.yml` fails loudly with
+  that exact message rather than letting you find out by noticing the page is a month old.
+- **Settings → Pages → Source: GitHub Actions.** The workflow asks for this itself
+  (`configure-pages` with `enablement: true`), so it usually just works. Pages on a *private*
+  repo additionally needs a paid plan; on a free account the repo has to be public, or you
+  keep using `dist/tradedesk.html` locally, which is the same app with the same data.
+
+A refused deploy is easy to misread: it fails in one second with no runner assigned, no steps
+and no logs, which looks like broken infrastructure rather than a wrong setting. The way to
+tell them apart is to dispatch the same workflow on `main` and compare.
 
 ## Data
 

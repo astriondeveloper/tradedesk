@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Trade Desk</title>
+<meta name="description" content="Full-PPR fantasy football projections and a trade evaluator that values players against your own starting lineup rather than summing their points.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0E141A">
+<!-- Inline so it survives bundling into one file and costs no request when hosted:
+     two opposed arrows in the app's amber, on the app's ink. -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230E141A'/><g fill='none' stroke='%23E0B040' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'><path d='M6 12.5h16m-4.5-4.5 4.5 4.5-4.5 4.5'/><path d='M26 21.5H10m4.5-4.5L10 21.5l4.5 4.5'/></g></svg>">
+<link rel="stylesheet" href="css/fonts.css">
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
@@ -27,10 +34,29 @@
 
 <!-- ------------------------------------------------------------------ TRADE -->
 <section class="view" id="view-trade">
+
+  <!-- Only appears once a league is imported: before that there is nobody else to watch. -->
+  <div class="panel" id="scoutBar" hidden>
+    <p class="eyebrow">
+      <b>Load any two teams</b> &nbsp;·&nbsp; you do not have to be in the deal
+      <span class="spacer"></span>
+      <span class="dim" id="scoutWho"></span>
+    </p>
+    <div class="grid g4">
+      <label class="fld"><span>Left panel</span><select id="pickA"></select></label>
+      <label class="fld"><span>Right panel</span><select id="pickB"></select></label>
+      <label class="fld"><span>You are</span><select id="pickMe"></select></label>
+      <label class="fld"><span>&nbsp;</span><button class="btn" id="pickLoad">Load rosters</button></label>
+    </div>
+    <p class="note" style="margin-top:12px">
+      Two rivals trading changes your season without touching your roster, because standings
+      are relative. Put both of them in the panels and the board below shows what it cost you.
+    </p>
+  </div>
+
   <div class="teams">
     <div class="panel">
       <p class="eyebrow"><b>Your team</b><span class="spacer"></span><span id="capA" class="dim"></span></p>
-      <select class="teampick" id="pickA" aria-label="Load a league roster into your side"></select>
       <input class="teamname" id="nameA" value="My team" aria-label="Your team name">
       <div class="rows" id="rowsA"></div>
       <div class="search" style="margin-top:10px">
@@ -46,7 +72,6 @@
 
     <div class="panel">
       <p class="eyebrow"><b>Their team</b><span class="spacer"></span><span id="capB" class="dim"></span></p>
-      <select class="teampick" id="pickB" aria-label="Load a league roster into their side"></select>
       <input class="teamname" id="nameB" value="Their team" aria-label="Their team name">
       <div class="rows" id="rowsB"></div>
       <div class="search" style="margin-top:10px">
@@ -69,6 +94,20 @@
       <button class="link" id="clearTrade">Clear</button>
     </p>
     <div id="verdict"></div>
+  </div>
+
+  <div class="panel" id="impactPanel" hidden>
+    <p class="eyebrow">
+      <b>League impact</b> &nbsp;·&nbsp; every roster scored the same way, before and after
+    </p>
+    <div id="impactBody"></div>
+  </div>
+
+  <div class="panel" id="openingsPanel" hidden>
+    <p class="eyebrow">
+      <b>Your openings</b> &nbsp;·&nbsp; where their hole meets your surplus
+    </p>
+    <div id="openingsBody"></div>
   </div>
 </section>
 
@@ -274,6 +313,8 @@
   replacement level, optimal lineups week by week, playoff weighting, bye coverage. It
   cannot tell you whether the numbers underneath are right, and it says where they came from
   so you can judge that yourself.
+  <a class="link" id="offline" href="tradedesk.html" download="tradedesk.html"
+     style="display:block;margin-top:10px" hidden>Download a copy that works offline</a>
   <button class="link" id="wipe" style="display:block;margin-top:10px">Clear everything and start over</button>
 </footer>
 

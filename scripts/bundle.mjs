@@ -126,7 +126,6 @@ function wrapModule(abs, src) {
 
 function build() {
   const html = read(join(APP, 'index.html'))
-  const css = read(join(APP, 'css', 'app.css'))
   const pack = read(join(APP, 'data', 'pack.js'))
   const leaguePath = join(APP, 'data', 'league.js')
   const league = existsSync(leaguePath) ? read(leaguePath) : ''
@@ -136,12 +135,24 @@ function build() {
     .map((m) => `/* ==== ${m.path.slice(APP.length + 1)} ==== */\n${wrapModule(m.path, m.src)}`)
     .join('\n')
 
+  // Inline every stylesheet the page links, in the order it links them -- fonts.css carries
+  // base64 @font-face rules and must land before the rules that use the families.
+  let sheets = 0
   const body = html
-    .replace(/<link rel="stylesheet" href="css\/app\.css">/, `<style>\n${css}\n</style>`)
+    .replace(/<link rel="stylesheet" href="css\/([A-Za-z0-9_-]+\.css)">/g, (_, file) => {
+      sheets++
+      return `<style>\n/* ==== css/${file} ==== */\n${read(join(APP, 'css', file))}\n</style>`
+    })
     .replace(/<script src="data\/pack\.js"><\/script>/, '<!-- data pack inlined below -->')
     .replace(/<script src="data\/league\.js"><\/script>/, '')
     .replace(/<script type="module" src="js\/main\.js"><\/script>/,
-      `<script>\n${pack}\n${league}\n</script>\n<script>\n"use strict";\n(function(){\n${code}\n})();\n</script>`)
+      // TD_STANDALONE marks this as the frozen single-file build rather than the hosted
+      // app. The app cannot tell the two apart any other way -- protocol will not do it,
+      // because this file gets served over https too (published as an artifact, dropped
+      // on a share) and would then claim a nightly rebuild it does not get. What is true
+      // of this file everywhere is that its data is fixed at the moment it was built.
+      `<script>\nwindow.TD_STANDALONE = true;\n${pack}\n${league}\n</script>\n`
+      + `<script>\n"use strict";\n(function(){\n${code}\n})();\n</script>`)
 
   mkdirSync(dirname(OUT), { recursive: true })
   writeFileSync(OUT, body)

@@ -1,0 +1,10 @@
+# Everything the pipeline imports. The app itself has no Python at runtime -- this is
+# only needed to rebuild the data pack.
+#
+# Lower bounds, not pins. pandas 3 changed enough (copy-on-write by default, the string
+# dtype) that the pipeline was written against it and is not tested below 2.2.
+pandas>=2.2
+numpy>=1.26
+
+# Reads the historical consensus board, which ships as parquet.
+pyarrow>=15
