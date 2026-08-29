@@ -101,6 +101,51 @@ you most — gets a full exact evaluation. Sampling by strata matters: ranking o
 gain alone fills the shortlist with mild fleeces and never evaluates the balanced deals at
 all.
 
+## Watching a trade you are not in
+
+Two rivals trading changes your season without touching your roster, because standings are
+relative. Load any two teams into the panels — you do not have to be one of them — tell the
+app which team is yours, and the **League impact** board scores every roster in the league the
+same way, before and after.
+
+The number that matters is not their point swing. It is this: **a trade does not conserve
+league strength.** Players move to rosters where they actually start, or stop starting, so the
+total goes up or down. A deal where both sides gain is the classic good trade, and it is
+exactly the case where everyone else just lost ground without being consulted.
+
+The first version of this reported change in your gap to the leader, which was wrong in a way
+worth recording: that number is exactly `0.00` unless the leader happens to be one of the two
+teams trading, which is most trades. The headline is now the change in the average strength of
+the field you have to beat, which moves whenever anything moves. Your rank change is reported
+alongside it, because a reshuffle can push a rival past you at constant field strength.
+
+Underneath, **Your openings** reads the aftermath. A trade leaves both sides lopsided — that is
+what trades do — so the app scores every roster's shape by position and finds where a rival's
+new hole meets your surplus. Fits are ranked on the *smaller* half, because a trade needs both:
+your spare receiver is worth nothing to a team already three deep there. This is the actionable
+part. The deal you just watched tells you who needs what before they have advertised it.
+
+## The interface
+
+Dark, dense, single-theme, and built to be operated rather than read.
+
+- **Elevation is colour, not shadow.** Three surfaces — `#0B0F19`, `#111827`, `#1F2937` —
+  separated by 1px hairlines at `rgba(255,255,255,0.08)`. There is not one `box-shadow` used
+  for depth. Shadows blur an edge; a technical panel wants a hard one.
+- **Dual fonts, enforced.** Inter for anything read as language, IBM Plex Mono for every
+  number, on tabular figures so a column of digits compares by eye. Both are embedded as
+  base64 rather than linked, so the downloaded single file and the hosted page render
+  identically — a webfont link would fail on `file://`, and the downloaded copy is the one
+  people take to a draft on hotel wifi.
+- **An 8px grid.** Every margin, padding and gap is a multiple of 8, or of 4 for genuinely
+  sub-unit insets.
+- **Telemetry alignment.** Identity left, numbers right, in roster rows and data tables alike,
+  so the eye learns one contract and reuses it everywhere.
+- **Selection is a 2px amber rule** down the left edge with a low-opacity wash falling away to
+  the right — not a glowing border, which at this density reads as an error state.
+- **Amber means "look here". Green and red mean better and worse.** They never mix, and both
+  are muted to enterprise-financial intensity so the data is never shouted at.
+
 ## The league it defaults to
 
 Full PPR, exactly as configured:
@@ -282,6 +327,10 @@ pipeline/          Python. Fetches, models, and compiles the data pack.
   bootstrap.py     fetch the large frozen inputs a clean checkout is missing
   refresh.py       re-fetch what moves, rebuild everything
 
+app/css/
+  fonts.css        Inter + IBM Plex Mono, base64 so the offline build matches the hosted one
+  app.css          the design system
+
 app/js/            The engines. Plain ES modules, no dependencies.
   scoring.js       components -> points, any format
   lineup.js        exact optimal lineup (Hungarian, not greedy)
@@ -292,6 +341,7 @@ app/js/            The engines. Plain ES modules, no dependencies.
   draft.js         live draft board
   espn.js          ESPN league import
   finder.js        trade search + acceptance model
+  scout.js         league board, roster shape, openings
   main.js          UI
 
 scripts/
@@ -308,9 +358,9 @@ scripts/
 ## Running it
 
 ```bash
-npm test                          # 275 tests
+npm test                          # 290 tests
 node scripts/bundle.mjs           # build dist/tradedesk.html
-node scripts/verify-browser.mjs   # 41 end-to-end checks, file:// and served over http
+node scripts/verify-browser.mjs   # 54 end-to-end checks, file:// and served over http
 node scripts/thesis.mjs           # the three claims, checked against real projections
 node scripts/league-edges.mjs     # what this scoring format actually does
 
