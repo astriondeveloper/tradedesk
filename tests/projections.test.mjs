@@ -1094,6 +1094,44 @@ test('the real sim.js, when present, plugs straight in', async () => {
   }
 });
 
+test('the closed form agrees with the Monte Carlo it stands in for', async () => {
+  let sim = null;
+  try {
+    sim = await import('../app/js/sim.js');
+  } catch {
+    return;
+  }
+  if (!sim || typeof sim.simPlayerWeek !== 'function') return;
+
+  // The whole point of a closed form is that it is the same answer, cheaply. Compare the
+  // full-season mean and (with the season-level role-risk term switched off, which the sim
+  // does not model) the spread, across the board and down the depth chart.
+  const picks = [];
+  for (const pos of ['QB', 'RB', 'WR', 'TE', 'K', 'DST']) {
+    const ranked = topAt(pos, 21).map((x) => x.player);
+    for (const i of [0, 8, 20]) if (ranked[i]) picks.push(ranked[i]);
+  }
+
+  let compared = 0;
+  for (const p of picks) {
+    if (!PACK.schedule[p.team]) continue;
+    const weeks = scheduledWeeks(p.team);
+    const closed = projectFast(p, { pack: VIEW, cfg: FULL, weeks, perWeek: false, meanUncertainty: 0 });
+    const s = project(p, { pack: VIEW, cfg: FULL, weeks, sim, iters: 4000, seed: 3 });
+    if (s.method !== 'sim' || !(closed.mean > 0)) continue;
+    compared++;
+
+    const relMean = Math.abs(s.mean - closed.mean) / closed.mean;
+    assert.ok(relMean < 0.05,
+      `${p.name}: closed form ${closed.mean} vs simulation ${s.mean} (${(relMean * 100).toFixed(1)}%)`);
+
+    const ratio = closed.sd / s.sd;
+    assert.ok(ratio > 0.6 && ratio < 1.5,
+      `${p.name}: closed-form sd ${closed.sd} vs simulated ${s.sd} (ratio ${ratio.toFixed(2)})`);
+  }
+  assert.ok(compared >= 12, `expected to compare many players, compared ${compared}`);
+});
+
 test('useSim registers and unregisters a default engine', () => {
   const wr = topAt('WR', 1)[0].player;
   try {
