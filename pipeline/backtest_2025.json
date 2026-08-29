@@ -1,0 +1,230 @@
+{
+  "season": 2025,
+  "n_players": 435,
+  "min_games": 6,
+  "overall": {
+    "model": {
+      "mae": 2.628,
+      "rmse": 3.694,
+      "bias": -0.494,
+      "corr": 0.7777,
+      "spearman": 0.7173
+    },
+    "last_year": {
+      "mae": 2.878,
+      "rmse": 3.742,
+      "bias": 0.733,
+      "corr": 0.7738,
+      "spearman": 0.7489
+    },
+    "league_avg": {
+      "mae": 3.998,
+      "rmse": 4.947,
+      "bias": -0.0,
+      "corr": 0.4489,
+      "spearman": 0.2871
+    }
+  },
+  "by_pos": {
+    "QB": {
+      "n": 43,
+      "model": {
+        "mae": 2.947,
+        "rmse": 4.09,
+        "bias": -0.331,
+        "corr": 0.6156,
+        "spearman": 0.7018
+      },
+      "last_year": {
+        "mae": 3.863,
+        "rmse": 4.841,
+        "bias": 0.477,
+        "corr": 0.4578,
+        "spearman": 0.4345
+      },
+      "proj_mean": 14.06,
+      "actual_mean": 14.39,
+      "proj_top5_mean": 19.67,
+      "actual_top5_mean": 20.88
+    },
+    "RB": {
+      "n": 106,
+      "model": {
+        "mae": 3.044,
+        "rmse": 4.364,
+        "bias": -0.562,
+        "corr": 0.7117,
+        "spearman": 0.6351
+      },
+      "last_year": {
+        "mae": 3.109,
+        "rmse": 4.075,
+        "bias": 0.685,
+        "corr": 0.7469,
+        "spearman": 0.7341
+      },
+      "proj_mean": 6.78,
+      "actual_mean": 7.34,
+      "proj_top5_mean": 17.29,
+      "actual_top5_mean": 21.88
+    },
+    "TE": {
+      "n": 99,
+      "model": {
+        "mae": 2.194,
+        "rmse": 3.194,
+        "bias": -0.662,
+        "corr": 0.6556,
+        "spearman": 0.6048
+      },
+      "last_year": {
+        "mae": 2.324,
+        "rmse": 3.047,
+        "bias": -0.082,
+        "corr": 0.6908,
+        "spearman": 0.6825
+      },
+      "proj_mean": 4.75,
+      "actual_mean": 5.41,
+      "proj_top5_mean": 12.51,
+      "actual_top5_mean": 15.0
+    },
+    "WR": {
+      "n": 187,
+      "model": {
+        "mae": 2.548,
+        "rmse": 3.42,
+        "bias": -0.403,
+        "corr": 0.7672,
+        "spearman": 0.708
+      },
+      "last_year": {
+        "mae": 2.813,
+        "rmse": 3.586,
+        "bias": 1.25,
+        "corr": 0.7641,
+        "spearman": 0.7208
+      },
+      "proj_mean": 5.91,
+      "actual_mean": 6.31,
+      "proj_top5_mean": 16.81,
+      "actual_top5_mean": 20.41
+    }
+  },
+  "worst_over": [
+    {
+      "name": "Kenny Pickett",
+      "pos": "QB",
+      "proj_ppg": 11.77,
+      "actual_ppg": 1.29,
+      "err": 10.49
+    },
+    {
+      "name": "Calvin Ridley",
+      "pos": "WR",
+      "proj_ppg": 15.79,
+      "actual_ppg": 6.76,
+      "err": 9.03
+    },
+    {
+      "name": "Taysom Hill",
+      "pos": "TE",
+      "proj_ppg": 11.95,
+      "actual_ppg": 3.21,
+      "err": 8.73
+    },
+    {
+      "name": "Roschon Johnson",
+      "pos": "RB",
+      "proj_ppg": 8.47,
+      "actual_ppg": 0.28,
+      "err": 8.18
+    },
+    {
+      "name": "Jerome Ford",
+      "pos": "RB",
+      "proj_ppg": 10.88,
+      "actual_ppg": 3.35,
+      "err": 7.53
+    },
+    {
+      "name": "Russell Wilson",
+      "pos": "QB",
+      "proj_ppg": 15.51,
+      "actual_ppg": 8.31,
+      "err": 7.2
+    },
+    {
+      "name": "Raheem Mostert",
+      "pos": "RB",
+      "proj_ppg": 9.24,
+      "actual_ppg": 2.45,
+      "err": 6.79
+    },
+    {
+      "name": "Alvin Kamara",
+      "pos": "RB",
+      "proj_ppg": 15.84,
+      "actual_ppg": 9.15,
+      "err": 6.68
+    }
+  ],
+  "worst_under": [
+    {
+      "name": "Omarion Hampton",
+      "pos": "RB",
+      "proj_ppg": 0.16,
+      "actual_ppg": 15.08,
+      "err": -14.92
+    },
+    {
+      "name": "Tetairoa McMillan",
+      "pos": "WR",
+      "proj_ppg": 0.01,
+      "actual_ppg": 12.55,
+      "err": -12.54
+    },
+    {
+      "name": "Ashton Jeanty",
+      "pos": "RB",
+      "proj_ppg": 2.0,
+      "actual_ppg": 14.42,
+      "err": -12.42
+    },
+    {
+      "name": "TreVeyon Henderson",
+      "pos": "RB",
+      "proj_ppg": 0.01,
+      "actual_ppg": 12.13,
+      "err": -12.12
+    },
+    {
+      "name": "RJ Harvey",
+      "pos": "RB",
+      "proj_ppg": 0.07,
+      "actual_ppg": 12.15,
+      "err": -12.08
+    },
+    {
+      "name": "Tyler Shough",
+      "pos": "QB",
+      "proj_ppg": 2.48,
+      "actual_ppg": 14.36,
+      "err": -11.88
+    },
+    {
+      "name": "Cam Skattebo",
+      "pos": "RB",
+      "proj_ppg": 4.44,
+      "actual_ppg": 15.96,
+      "err": -11.52
+    },
+    {
+      "name": "Harold Fannin Jr.",
+      "pos": "TE",
+      "proj_ppg": 0.32,
+      "actual_ppg": 11.65,
+      "err": -11.33
+    }
+  ]
+}

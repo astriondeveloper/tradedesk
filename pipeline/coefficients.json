@@ -1,0 +1,57 @@
+{
+  "n_team_games": 3742,
+  "pass_rate": {
+    "intercept": 0.57368,
+    "per_point_favored": -0.0024,
+    "per_point_total": 0.00294,
+    "resid_sd": 0.10532,
+    "note": "dropbacks/(dropbacks+carries); spread positive = favored; negative per_point_favored means underdogs pass more"
+  },
+  "plays": {
+    "intercept": 62.9385,
+    "per_point_total": 0.18355,
+    "sd": 8.4369
+  },
+  "off_td_vs_implied": {
+    "intercept": -0.66289,
+    "per_implied_point": 0.13714,
+    "corr": 0.3807,
+    "mean_off_td": 2.4303,
+    "var_mean_ratio": 0.813
+  },
+  "pass_td_share": {
+    "mean": 0.6229,
+    "sd": 0.3484
+  },
+  "efficiency": {
+    "league_ypa": 7.1088,
+    "league_ypc": 4.3588,
+    "league_catch_rate": 0.6737,
+    "league_ypt": 7.4201
+  },
+  "team_points": {
+    "mean": 22.865,
+    "sd": 9.956,
+    "resid_sd_vs_implied": 9.124
+  },
+  "team_yards": {
+    "mean": 356.65,
+    "sd": 81.02
+  },
+  "positional_cv": {
+    "QB": {
+      "patt": 0.3373,
+      "ratt": 0.5919
+    },
+    "RB": {
+      "ratt": 0.5036,
+      "tgt": 0.5944
+    },
+    "TE": {
+      "tgt": 0.2801
+    },
+    "WR": {
+      "tgt": 0.3026
+    }
+  }
+}

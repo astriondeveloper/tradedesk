@@ -1,0 +1,21 @@
+# Downloaded source data. Regenerate with `python3 pipeline/sources.py`.
+# ~440MB including play-by-play; never committed.
+pipeline/.cache/
+
+# Build output. `npm run build` regenerates it from app/ + the data pack.
+dist/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
