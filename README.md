@@ -74,7 +74,7 @@ the waiver wire — the method `replacement.js` always preferred and never had t
 
 Two consequences worth knowing about, both visible on the League tab:
 
-- **Eight teams is a shallow league.** Slot math alone would put replacement at WR21 and RB19.
+- **Eight teams is a shallow league.** Slot math alone would put replacement at WR22 and RB20.
 - **This league hoards running backs.** The actual free-agent bar is WR24 but **RB34** — a
   startable back is far scarcer here than the format implies, and that is the single most
   decision-relevant number in the app.
@@ -117,22 +117,24 @@ Every package is valued **twice** —
   over replacement so it is comparable.
 
 The deal you want is one that prices out even on names and is not even at all once your
-bench is accounted for. Run from your roster against Riley's Rowdy Team, the top result is
-*give Nico Collins and Drake London, get Kenneth Walker III and Tetairoa McMillan*: worth
-**+2.7 points a week** to you, while the other side perceives it as a **+3.0 gain for
-themselves** and scores 64% to accept — because consensus rank cannot see that the receivers
-being sent were the third and fourth on a roster that starts two and a flex.
+bench is accounted for. Run from your roster against CMCn MY WAY TO THE CHAMPIONSHIP, the top
+result is *give Nico Collins and Drake London, get Trey McBride and Ladd McConkey*: worth
+**+4.3 points a week** to you while the other side still reads it as a **gain for themselves**
+on name value, and it scores 55% to accept — because consensus rank cannot see that the
+receivers being sent are the second and third on a roster that starts two and a flex.
 
 Each candidate reports a **would-they-accept** score built from perceived value (which
 dominates), how well the incoming players fit their lineup, and true value (a minor term,
 because they cannot see it). Deals split into **worth sending** and **longshots**, and when
 nothing clears the bar the app says so rather than manufacturing something.
 
-Search notes: against the real rosters in this league, 4,500 to 6,900 packages get screened on
+Search notes: against the real rosters in this league, 4,300 to 7,000 packages get screened on
 per-player marginal values, then a stratified shortlist — sampled across bands of perceived
 fairness, not just by what helps you most — gets a full exact evaluation. Sampling by strata
 matters: ranking on your own gain alone fills the shortlist with mild fleeces and never
-evaluates the balanced deals at all.
+evaluates the balanced deals at all. Every rival roster is priced with the injury designations
+the league file carries, not at full availability, so a search does not quietly value a
+questionable player as healthy just because you have never opened his team.
 
 ## The scoring
 
@@ -164,9 +166,9 @@ Switch to standard and Ja'Marr Chase drops out of the top three on the spot.
   in standard scoring.
 - **Quarterbacks compress, confirmed — and eight teams makes it worse.** QB3 to QB14 is 1.49
   points a week, against 4.59 for RB3-to-RB14 and 3.20 for WR3-to-WR14. Fifteen quarterbacks
-  are rostered league-wide, so the best one nobody owns already projects at 18.4 a game: the
-  best quarterback in the league is worth **1.99** over him, the best receiver **9.98**. Paying
-  up at quarterback here is close to setting money on fire.
+  are rostered league-wide, so the best one nobody owns is still this model's QB4 at 18.4 a
+  game: the best quarterback in the league is worth **1.99** over him, the best receiver
+  **9.98**. Paying up at quarterback here is close to setting money on fire.
 - **D/ST streaming is genuinely +EV here.** The spread from the best season-long defense to the
   worst is 6.23 points a game. The average best-to-worst swing *within a single defense's own
   season* is 5.85. Matchup moves a defense nearly as much as talent does, which is a
@@ -178,7 +180,8 @@ Switch to standard and Ja'Marr Chase drops out of the top three on the spot.
 - **One finding worth acting on:** with a single flex, this scoring fills it with a receiver
   5 times out of 8. But the slot math and the waiver wire disagree, and the waiver wire wins:
   replacement is WR24 and **RB34**. A startable back is the scarce thing in this league,
-  because eight managers are sitting on nineteen of them.
+  because eight managers are sitting on **38** of them — nearly five apiece, for two starting
+  slots and a flex.
 
 ---
 

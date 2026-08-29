@@ -67,16 +67,25 @@ test('nobody is on two rosters', () => {
   assert.equal(owner.size, allPlayers.length)
 })
 
-test('every roster fits the league slot table', () => {
+test('every roster fills the league slot table exactly', () => {
   const size = Object.values(league.slots).reduce((a, b) => a + b, 0)
   for (const t of league.rosters) {
     const counts = {}
     for (const p of t.players) counts[p.slot] = (counts[p.slot] || 0) + 1
+    // A short roster is the transcription error that looks like nothing -- the team is
+    // just a little worse, forever. So the count is exact, and a real open spot has to be
+    // declared rather than inferred from a roster that came up short.
+    const blank = t.emptySlots || 0
     for (const [slot, n] of Object.entries(league.slots)) {
-      if (slot === 'BEN') assert.ok((counts.BEN || 0) <= n, `${t.name}: too many on the bench`)
-      else assert.equal(counts[slot] || 0, n, `${t.name}: wrong count in ${slot}`)
+      if (slot === 'BEN') {
+        assert.equal(counts.BEN || 0, n - blank,
+          `${t.name}: ${counts.BEN || 0} on the bench, expected ${n - blank}`)
+      } else {
+        assert.equal(counts[slot] || 0, n, `${t.name}: wrong count in ${slot}`)
+      }
     }
-    assert.ok(t.players.length <= size, `${t.name}: ${t.players.length} players, roster holds ${size}`)
+    assert.equal(t.players.length + blank, size,
+      `${t.name}: ${t.players.length} players plus ${blank} empty, roster holds ${size}`)
     // Every starter has to be legal for the slot he is in, flex aside.
     for (const p of t.players) {
       if (p.slot === 'BEN' || p.slot === 'FLEX') continue

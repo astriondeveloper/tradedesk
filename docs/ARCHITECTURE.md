@@ -248,8 +248,8 @@ user-overridable, but correct by default.
 Since the whole league ships with the app (section 5a), the free-agent path is the one that
 actually runs: the app hands the engine every id any team owns, coverage comes out near 100%,
 and replacement is the literal waiver wire. The two methods disagree most at running back —
-the rank baseline says RB19, the waiver wire says RB34 — because this league rosters more
-backs than its slot table implies. The engine reports which method it used per position, and
+the rank baseline says RB20, the waiver wire says RB34 — because this league rosters 38
+running backs against a slot table that starts two and a flex. The engine reports which method it used per position, and
 the UI shows it.
 
 ---

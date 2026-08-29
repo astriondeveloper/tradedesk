@@ -83,6 +83,8 @@
     {
       "name": "Brennan put BTA",
       "owner": "Brennan Meeks",
+      "_note": "ESPN showed one empty bench slot for this team.",
+      "emptySlots": 1,
       "players": [
         { "slot": "QB",   "name": "Jalen Hurts",        "pos": "QB",  "nfl": "PHI", "opp": "WSH" },
         { "slot": "RB",   "name": "Ashton Jeanty",      "pos": "RB",  "nfl": "LV",  "opp": "MIA", "status": "Q" },

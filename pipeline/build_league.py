@@ -126,23 +126,35 @@ def resolve_roster(team: dict, pack: dict, res: Resolver, week: int,
     return out
 
 
-def check_shape(src: dict, rosters: list[dict], errors: list[str]) -> None:
-    """Every roster must fit the league's own slot table. A tenth starter is a typo."""
+def check_shape(src: dict, rosters: list[dict], errors: list[str],
+                empty: dict[str, int]) -> None:
+    """Every roster must fill the league's own slot table exactly.
+
+    A short roster is the one transcription error that looks like nothing: drop a bench row
+    and you get a team that is simply a bit worse, priced confidently all season. So the
+    count has to be exact, and a genuinely empty slot has to be declared in league.json
+    (`emptySlots`) rather than inferred from a roster that came up short.
+    """
     slots = src["slots"]
     size = sum(slots.values())
     for team in rosters:
         counts: dict[str, int] = {}
         for p in team["players"]:
             counts[p["slot"]] = counts.get(p["slot"], 0) + 1
+        blank = empty.get(team["name"], 0)
         for slot, n in slots.items():
             got = counts.get(slot, 0)
             if slot == "BEN":
-                if got > n:
-                    errors.append(f"{team['name']}: {got} bench players, league allows {n}")
+                if got != n - blank:
+                    errors.append(f"{team['name']}: {got} bench players, expected "
+                                  f"{n - blank} ({n} slots less {blank} declared empty). "
+                                  f"If a row was dropped, add it; if the slot is really "
+                                  f"empty, set emptySlots on this team.")
             elif got != n:
                 errors.append(f"{team['name']}: {got} players in {slot}, league has {n}")
-        if len(team["players"]) > size:
-            errors.append(f"{team['name']}: {len(team['players'])} players, roster holds {size}")
+        if len(team["players"]) + blank != size:
+            errors.append(f"{team['name']}: {len(team['players'])} players plus {blank} "
+                          f"declared empty, but the roster holds {size}")
 
 
 def check_unique(rosters: list[dict], errors: list[str]) -> None:
@@ -168,13 +180,19 @@ def main() -> None:
     errors: list[str] = []
     rosters = []
     for team in src["rosters"]:
-        rosters.append({
+        row = {
             "name": team["name"],
             "owner": team["owner"],
             "players": resolve_roster(team, pack, res, week, errors),
-        })
+        }
+        # Carried through so the app and the tests can tell a genuinely open roster spot
+        # from a row that went missing on the way in.
+        if team.get("emptySlots"):
+            row["emptySlots"] = int(team["emptySlots"])
+        rosters.append(row)
 
-    check_shape(src, rosters, errors)
+    empty = {t["name"]: int(t.get("emptySlots", 0)) for t in src["rosters"]}
+    check_shape(src, rosters, errors, empty)
     check_unique(rosters, errors)
 
     names = {t["name"] for t in rosters}

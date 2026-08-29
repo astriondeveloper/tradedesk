@@ -172,6 +172,42 @@ if (proposals > 0) {
 }
 await page.screenshot({ path: join(SHOTS, 'desktop-propose.png'), fullPage: true })
 
+// --- the opponent selection must survive side A changing --------------------------
+// Which teams are listed depends on who is loaded into side A, so the list reorders when
+// you switch your own roster. An index carried across that rebuild points at a different
+// manager; results priced against one opponent must never be shown under another's name.
+const oppBefore = await page.locator('#fOpponent').inputValue()
+await page.locator('nav.tabs button[data-view="trade"]').click()
+await page.waitForTimeout(600)
+// Deliberately a team that is neither yours nor the selected opponent: the list reorders
+// around it, so the selection has to be preserved by name and cannot merely survive by
+// landing on the same index.
+const otherTeam = await page.evaluate((opp) => {
+  const mine = window.TD_LEAGUE.myTeam
+  return [...document.getElementById('pickA').options]
+    .map((o) => o.value)
+    .find((v) => v && v !== mine && !opp.startsWith(v)) || ''
+}, oppBefore)
+await page.selectOption('#pickA', otherTeam)
+await page.waitForTimeout(1500)
+await page.locator('nav.tabs button[data-view="propose"]').click()
+await page.waitForTimeout(900)
+const oppAfter = await page.locator('#fOpponent').inputValue()
+const stillMine = await page.evaluate(() => document.getElementById('pickA').value)
+note(stillMine === otherTeam && oppAfter === oppBefore,
+  'the opponent survives side A changing, by name rather than by position',
+  `side A ${stillMine}, opponent ${oppBefore} -> ${oppAfter}`)
+note(!oppAfter.startsWith(stillMine), 'and is never repointed at your own roster', oppAfter)
+const staleResults = await page.locator('#fResults .proposal').count()
+note(staleResults === 0, 'and proposals priced against the old pairing are cleared',
+  `${staleResults} stale card(s)`)
+
+// Put side A back on the user's own roster for the checks that follow.
+await page.locator('nav.tabs button[data-view="trade"]').click()
+await page.waitForTimeout(500)
+await page.selectOption('#pickA', await page.evaluate(() => window.TD_LEAGUE.myTeam))
+await page.waitForTimeout(1200)
+
 // --- ESPN import ---
 await page.locator('nav.tabs button[data-view="league"]').click()
 await page.waitForTimeout(700)
@@ -295,6 +331,23 @@ note(recovered.pickA === recovered.mine && !!recovered.pickB && recovered.pickB 
   `${recovered.pickA} vs ${recovered.pickB}`)
 note(recovered.teams === 8, 'and its stale league size is discarded too', `teams ${recovered.teams}`)
 note(recovered.keptStatus === 'OUT', 'while injury overrides survive, being about players')
+
+// --- league injury designations apply to every roster, not just the loaded ones ----
+// The Propose tab prices a rival straight out of the league file, so a designation that
+// only landed once you had opened that team would make the same search return different
+// numbers depending on where you had clicked.
+const seeded = await page.evaluate(() => {
+  const flagged = window.TD_LEAGUE.rosters.flatMap((t) => t.players).filter((p) => p.status)
+  const store = JSON.parse(localStorage.getItem('tradedesk:v2') || '{}')
+  const status = store.status || {}
+  return {
+    total: flagged.length,
+    applied: flagged.filter((p) => status[p.id] === p.status).length,
+  }
+})
+note(seeded.total > 0 && seeded.applied === seeded.total,
+  'every league injury designation is applied, not just the loaded teams',
+  `${seeded.applied}/${seeded.total}`)
 
 // Put the page back on a trade so the screenshots below are of a populated view.
 await page.locator('nav.tabs button[data-view="trade"]').click()
