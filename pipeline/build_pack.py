@@ -265,6 +265,45 @@ def project_kickers(uni, hist, sched, fg_profile, coef) -> dict:
     return out
 
 
+# Weeks the fantasy postseason is usually played in this format. Configurable in the app;
+# this is only the default used to precompute playoff-window strength of schedule.
+DEFAULT_PLAYOFF_WEEKS = (15, 16, 17)
+
+
+def strength_of_schedule(sched: dict, dvp: dict, playoff_weeks=DEFAULT_PLAYOFF_WEEKS) -> dict:
+    """Per team, per position: how friendly the schedule is, full season and playoffs.
+
+    Above 1.0 means opponents have been giving up more than average to that position.
+    The playoff-window number is broken out separately because it is the one that decides
+    seasons and the one every point-summing tool ignores -- a receiver with the league's
+    softest week 15-17 draw is worth more than his season average says, and the trade
+    evaluator needs that visible rather than buried.
+    """
+    out: dict[str, dict] = {}
+    for team, weeks in sched.items():
+        entry: dict[str, dict] = {}
+        for pos in ("QB", "RB", "WR", "TE", "K", "DST"):
+            season, playoff = [], []
+            for w in weeks:
+                mult = float(dvp.get(w["opp"], {}).get(pos, 1.0))
+                season.append(mult)
+                if w["w"] in playoff_weeks:
+                    playoff.append(mult)
+            entry[pos] = {
+                "season": r2(np.mean(season) if season else 1.0, 4),
+                "playoff": r2(np.mean(playoff) if playoff else 1.0, 4),
+            }
+        # For D/ST the relevant schedule is the offenses it faces, not a DvP multiplier.
+        opp_implied = [w["oppImplied"] for w in weeks]
+        po_implied = [w["oppImplied"] for w in weeks if w["w"] in playoff_weeks]
+        entry["oppOffense"] = {
+            "season": r2(np.mean(opp_implied) if opp_implied else 22.0, 2),
+            "playoff": r2(np.mean(po_implied) if po_implied else 22.0, 2),
+        }
+        out[team] = entry
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Market blend
 # ---------------------------------------------------------------------------
@@ -537,6 +576,8 @@ def build() -> dict:
                if f"ecr:{team} {TEAM_NAMES.get(team,'')}:DST" in ecr_map else {}),
         })
 
+    sos = strength_of_schedule(sched, dvp)
+
     integrity = checks.run_all(games, sched, byes, ecr)
     integrity["td_regression"] = rz["regression_check"]
 
@@ -565,6 +606,8 @@ def build() -> dict:
                             for w, f in v.items()} for t, v in factors.items()},
         "teamBase": base,
         "dvp": dvp,
+        "sos": sos,
+        "playoffWeeks": list(DEFAULT_PLAYOFF_WEEKS),
         "coef": coef,
         "players": players,
     }
