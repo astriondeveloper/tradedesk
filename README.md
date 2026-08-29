@@ -310,7 +310,7 @@ scripts/
 ```bash
 npm test                          # 275 tests
 node scripts/bundle.mjs           # build dist/tradedesk.html
-node scripts/verify-browser.mjs   # 39 end-to-end checks, file:// and served over http
+node scripts/verify-browser.mjs   # 41 end-to-end checks, file:// and served over http
 node scripts/thesis.mjs           # the three claims, checked against real projections
 node scripts/league-edges.mjs     # what this scoring format actually does
 

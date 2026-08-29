@@ -340,6 +340,21 @@ const fileStale = (await page.locator('#verdict .stale').first().textContent()) 
 note(/refresh\.py/.test(fileStale) && !/every morning/.test(fileStale),
   'downloaded copy still says how to rebuild it')
 
+// The single file gets served over https at least as often as it gets opened from disk --
+// published as an artifact, or sitting at /tradedesk.html next to the deployed page. It is
+// a frozen copy in every one of those cases, and protocol alone would say otherwise.
+const served = await ctx.newPage()
+await served.goto(`${origin}/tradedesk.html`, { waitUntil: 'load' })
+await served.waitForTimeout(2500)
+await served.locator('#rowsA .row .pill').first().click()
+await served.waitForTimeout(2000)
+const servedStale = (await served.locator('#verdict .stale').first().textContent()) || ''
+note(/refresh\.py/.test(servedStale) && !/every morning/.test(servedStale),
+  'the single-file build does not claim a nightly rebuild when served over http')
+note(await served.locator('#offline').isHidden(),
+  'the single-file build does not offer itself as a download')
+await served.close()
+
 await hosted.screenshot({ path: join(SHOTS, 'hosted-trade.png'), fullPage: true })
 server.close()
 

@@ -92,7 +92,12 @@ nav.tabs button {
 nav.tabs button:hover { color: var(--muted); }
 nav.tabs button[aria-selected="true"] { color: var(--amber); border-bottom-color: var(--amber); }
 
-.view[hidden] { display: none !important; }
+/* The `hidden` attribute is only a UA-stylesheet `display: none`, so any inline display --
+   and several elements here carry one -- silently beats it and the element stays on screen.
+   This was already patched narrowly for .view; a download link that ignored `hidden`
+   everywhere was the second time, so make it hold for every element that claims to be
+   hidden rather than waiting for a third. */
+[hidden] { display: none !important; }
 
 /* ------------------------------------------------------------------ panels */
 
