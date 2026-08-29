@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const APP = join(ROOT, 'app')
 const OUT = join(ROOT, 'dist', 'tradedesk.html')
+const ARTIFACT = join(ROOT, 'dist', 'tradedesk.artifact.html')
 
 const read = (p) => readFileSync(p, 'utf8')
 
@@ -144,7 +145,17 @@ function build() {
 
   mkdirSync(dirname(OUT), { recursive: true })
   writeFileSync(OUT, body)
-  return { body, modules }
+
+  // A second output for artifact publishing, which supplies its own document shell. The
+  // outer doctype/html/head/body must come off or they nest inside the host's, so this
+  // keeps the title, the styles and everything in the body, and nothing else.
+  const title = (body.match(/<title>([\s\S]*?)<\/title>/) || [])[1] || 'Trade Desk'
+  const style = (body.match(/<style>[\s\S]*?<\/style>/) || [''])[0]
+  const inner = (body.match(/<body[^>]*>([\s\S]*)<\/body>/) || [])[1] || ''
+  const fragment = `<title>${title}</title>\n${style}\n${inner.trim()}\n`
+  writeFileSync(ARTIFACT, fragment)
+
+  return { body, fragment, modules }
 }
 
 /* ---------------------------------------------------------------- verify */
@@ -169,11 +180,17 @@ function validate(body) {
   return { scripts: checked }
 }
 
-const { body, modules } = build()
+const { body, fragment, modules } = build()
 const v = validate(body)
 const bytes = Buffer.byteLength(body)
 
 console.log(`bundled ${modules.length} modules -> ${OUT}`)
 for (const m of modules) console.log(`   ${m.path.slice(APP.length + 1)}`)
 console.log(`\n${(bytes / 1048576).toFixed(2)} MB, ${v.scripts} inline scripts, all parse cleanly`)
+// Word-boundaried on purpose: a naive /<head/ also matches the page's own <header>,
+// which is not a document tag and is exactly what tripped this check first time.
+if (/<!DOCTYPE\b|<\/?(?:html|head|body)(?:\s|>)/i.test(fragment)) {
+  throw new Error('the artifact fragment still carries document tags; it would nest inside the host shell')
+}
+console.log(`artifact fragment -> ${ARTIFACT} (${(Buffer.byteLength(fragment) / 1048576).toFixed(2)} MB)`)
 if (bytes > 15 * 1048576) console.log('WARNING: approaching the 16MB artifact limit')
