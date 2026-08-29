@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Trade Desk</title>
+<meta name="description" content="Full-PPR fantasy football projections and a trade evaluator that values players against your own starting lineup rather than summing their points.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0E141A">
+<!-- Inline so it survives bundling into one file and costs no request when hosted:
+     two opposed arrows in the app's amber, on the app's ink. -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230E141A'/><g fill='none' stroke='%23E0B040' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'><path d='M6 12.5h16m-4.5-4.5 4.5 4.5-4.5 4.5'/><path d='M26 21.5H10m4.5-4.5L10 21.5l4.5 4.5'/></g></svg>">
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
@@ -266,6 +272,8 @@
   replacement level, optimal lineups week by week, playoff weighting, bye coverage. It
   cannot tell you whether the numbers underneath are right, and it says where they came from
   so you can judge that yourself.
+  <a class="link" id="offline" href="tradedesk.html" download="tradedesk.html"
+     style="display:block;margin-top:10px" hidden>Download a copy that works offline</a>
   <button class="link" id="wipe" style="display:block;margin-top:10px">Clear everything and start over</button>
 </footer>
 

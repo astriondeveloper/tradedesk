@@ -1,0 +1,147 @@
+name: pages
+
+# Publishes the app to GitHub Pages, and -- this is the part that matters -- rebuilds the
+# projections from fresh data on a schedule so the hosted page does not rot.
+#
+# Two shapes of run:
+#
+#   push          deploy the app as committed. The pack in the repo is used as-is, so a
+#                 code change ships in about two minutes without touching the data.
+#   schedule      re-fetch every volatile source, refit the projections, then deploy.
+#                 Injury reports, depth charts, rosters, box scores and betting lines all
+#                 move overnight; this is what makes the page current the next morning.
+#
+# The rebuilt pack is deliberately NOT committed back. It is 2MB, it changes every day,
+# and committing it would add roughly 700MB a year of git history for data that is
+# reproducible from `pipeline/refresh.py` in a minute. The repo keeps a known-good pack
+# for local use; the hosted page gets a fresh one daily.
+
+on:
+  push:
+    branches: ['**']
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+      - '.github/workflows/tests.yml'
+  schedule:
+    # 11:00 UTC daily -- 7am Eastern, 6am Central. The consensus board rescrapes
+    # overnight and the previous evening's practice reports are in by then, so this is
+    # the first build of the day that knows anything new.
+    - cron: '0 11 * * *'
+  workflow_dispatch:
+    inputs:
+      refresh:
+        description: 'Re-fetch the data and refit the projections'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never two deploys at once, and never cancel one halfway -- a cancelled deploy can leave
+# Pages serving a partial upload.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Only the default branch publishes. Feature branches still get the full test suite
+    # from tests.yml; they just do not get to overwrite the live site.
+    if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      REFRESH: ${{ github.event_name == 'schedule' || github.event.inputs.refresh == 'true' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-python@v5
+        if: env.REFRESH == 'true'
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        if: env.REFRESH == 'true'
+        run: pip install -r pipeline/requirements.txt
+
+      # Seven seasons of history and 300MB of play-by-play do not change. Cache them, and
+      # the daily run only pulls the things that actually moved. The key is hashed over
+      # the two files that decide what the cache should contain, so editing either one
+      # rebuilds it and nothing else does.
+      - name: Restore the nflverse cache
+        if: env.REFRESH == 'true'
+        uses: actions/cache@v4
+        with:
+          path: pipeline/.cache
+          key: nflverse-v1-${{ hashFiles('pipeline/sources.py', 'pipeline/bootstrap.py') }}
+          restore-keys: nflverse-v1-
+
+      - name: Fetch anything missing
+        if: env.REFRESH == 'true'
+        run: python3 pipeline/bootstrap.py
+
+      # continue-on-error on purpose. If nflverse is down or a schema moved, the right
+      # outcome is yesterday's projections, not a broken site.
+      - name: Refresh the data and refit the projections
+        id: refresh
+        if: env.REFRESH == 'true'
+        continue-on-error: true
+        run: python3 pipeline/refresh.py
+
+      - name: Fall back to the committed pack
+        if: env.REFRESH == 'true' && steps.refresh.outcome == 'failure'
+        run: |
+          echo "::warning title=Data refresh failed::Deploying the pack committed to the repo. The page will show its real age."
+          git checkout -- app/data
+
+      - name: Bundle the single-file build
+        run: node scripts/bundle.mjs
+
+      - name: Install Playwright
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      # Gate the deploy on the app actually working with whatever data just got built.
+      # A failure here leaves the previous deploy in place, which is the correct answer:
+      # a day-old page beats a broken one.
+      - name: Browser verification
+        run: node scripts/verify-browser.mjs
+
+      - name: Assemble the site
+        run: |
+          rm -rf _site
+          mkdir -p _site
+          cp -R app/. _site/
+          cp dist/tradedesk.html _site/tradedesk.html
+          touch _site/.nojekyll
+          echo "site contents:"
+          find _site -type f | sort | sed 's/^/  /'
+          echo "pack: $(grep -o '"generated":"[^"]*"' _site/data/pack.js | head -1)"
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

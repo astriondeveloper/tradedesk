@@ -34,6 +34,11 @@ const cls = (n, eps = 0.05) => (n > eps ? 'up' : n < -eps ? 'down' : 'flat')
 
 const byId = new Map(PACK.players.map((p) => [p.id, p]))
 
+// Served from a web server rather than opened as a file. The two cases give the same app
+// but different advice about staleness: the hosted copy rebuilds itself every morning,
+// the downloaded copy is frozen at whatever day you saved it.
+const HOSTED = typeof location !== 'undefined' && /^https?:$/.test(location.protocol)
+
 /* ------------------------------------------------------------------ state */
 
 const STORE = 'tradedesk:v2'
@@ -138,12 +143,19 @@ function staleBanner() {
   const age = dataAgeDays()
   if (age == null) return ''
   const hard = age > 7
+  const headline = HOSTED
+    ? `This data is ${age === 0 ? 'from today' : `${age} day${age === 1 ? '' : 's'} old`}.`
+    : `This data is ${age === 0 ? 'from today' : `${age} day${age === 1 ? '' : 's'} old`} and does not update itself.`
+  const rebuild = HOSTED
+    ? 'This page refetches and refits every morning, so anything above a day old means the'
+      + ' last rebuild failed rather than that it is waiting on you.'
+    : 'Rebuild it with <code>python3 pipeline/refresh.py</code>.'
   return `<div class="stale">
-    <b>This data is ${age === 0 ? 'from today' : `${age} day${age === 1 ? '' : 's'} old`} and does not update itself.</b>
+    <b>${headline}</b>
     Injury news, depth-chart changes and in-season trades after that date are not in here.
     ${hard ? 'At this age, treat the projections as a starting point rather than current. ' : ''}
-    Rebuild it with <code>python3 pipeline/refresh.py</code>, or mark a player's status on
-    his row to flow a change through every number immediately.
+    ${rebuild} Either way, marking a player's status on his row flows the change through
+    every number immediately and needs no rebuild at all.
   </div>`
 }
 
@@ -1017,6 +1029,10 @@ function init() {
     renderAll()
     save()
   }
+
+  // The single-file build sits next to this page on the server. Offer it only when there
+  // is a server to fetch it from; from a file:// copy the link would point at nothing.
+  if (HOSTED) $('offline').hidden = false
 
   // Open on the demo if there is nothing saved, so the first screen shows the tool working.
   if (!state.A.length && !state.B.length && DEMO) loadDemo()

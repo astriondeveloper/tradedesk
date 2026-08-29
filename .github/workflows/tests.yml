@@ -1,0 +1,65 @@
+name: tests
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Deliberately before `npm install`. The scoring, lineup, replacement, trade,
+      # finder and ESPN modules have no dependencies, and running their tests against a
+      # bare checkout is what keeps that true -- a dependency that crept in would fail
+      # here rather than pass quietly because the runner happened to have it.
+      - name: Unit tests
+        run: npm test
+
+      - name: Bundle the single-file build
+        run: node scripts/bundle.mjs
+
+      # Face validity on the pack that is actually committed: scored in Python, under the
+      # league this was built for, entirely independently of the JS engine that ships. A
+      # backup ranked RB1 or a team throwing 800 times shows up here.
+      - name: Pack sanity
+        run: python3 pipeline/sanity.py
+
+      - name: Install Playwright
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      # The unit tests prove the math. This proves the thing opens, renders real players,
+      # computes a real verdict, and reacts to a scoring change.
+      - name: Browser verification
+        run: node scripts/verify-browser.mjs
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: dist/shots
+          if-no-files-found: ignore
+          retention-days: 7
