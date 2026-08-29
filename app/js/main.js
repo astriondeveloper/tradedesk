@@ -15,7 +15,8 @@ import { evaluateTrade, suggestFair, playerPPG, DEFAULT_LEAGUE } from './trade.j
 import { draftBoard, detectRun, positionScarcity } from './draft.js'
 import { findTrades, marketValues } from './finder.js'
 import { parseEspnLeague, espnUrl } from './espn.js'
-import { tradeImpact, openings, positionalShape, leagueContext, CORE_POS } from './scout.js'
+import { tradeImpact, openings, positionalShape, leagueContext, counterplay, CORE_POS } from './scout.js'
+import { bullet, gauge, funnel, exchange, niceBounds } from './instruments.js'
 
 const PACK = window.TD_PACK
 /**
@@ -262,6 +263,10 @@ function renderRoster(side) {
     .forEach((p) => {
       const v = ppg(p) - (repl[p.pos] || 0)
       const row = el('div', `row${state.move[p.id] ? ' on' : ''}`)
+      // Identity and draggability live on the element so the delegated drag handlers on
+      // the container keep working across the full re-render that happens on every edit.
+      row.dataset.id = p.id
+      row.draggable = true
       row.innerHTML =
         `<button class="pill" aria-label="Move ${esc(p.name)} in this trade">${side === 'A' ? '→' : '←'}</button>`
         + `<div><div class="nm">${esc(p.name)}</div>`
@@ -914,7 +919,42 @@ function renderPlayers() {
     body.appendChild(tr)
   }
 
-  $('pDetail').innerHTML = state.players.open ? playerDetail(byId.get(state.players.open)) : ''
+  openDrawer(state.players.open ? byId.get(state.players.open) : null)
+}
+
+/**
+ * The player drill-down.
+ *
+ * A drawer rather than a modal, deliberately: a modal covers the grid it was opened from,
+ * so the reader loses the row they clicked and the neighbours they were comparing it to.
+ * The drawer keeps both on screen, which makes the detail read as an expansion of the row
+ * rather than a departure from it.
+ */
+function openDrawer(p) {
+  const d = $('drawer')
+  const scrim = $('scrim')
+  if (!p) {
+    d.classList.remove('on')
+    scrim.classList.remove('on')
+    d.hidden = true
+    scrim.hidden = true
+    return
+  }
+  $('drawerTitle').textContent = p.name
+  $('drawerSub').innerHTML = `<span class="pos" data-p="${p.pos}">${p.pos}</span>`
+    + `<span>${esc(p.team)}</span>${p.bye ? `<span>bye ${p.bye}</span>` : ''}`
+    + `<span>${f2(ppg(p))} pts/g</span>`
+  $('drawerBody').innerHTML = playerDetail(p)
+  d.hidden = false
+  scrim.hidden = false
+  // Next frame, so the transform transition has a start state to move from.
+  requestAnimationFrame(() => { d.classList.add('on'); scrim.classList.add('on') })
+  $('drawerClose').focus()
+}
+
+function closeDrawer() {
+  state.players.open = null
+  openDrawer(null)
 }
 
 function playerDetail(p) {
@@ -924,10 +964,8 @@ function playerDetail(p) {
   const items = line ? explainLine(line, state.cfg, p.pos) : []
   const role = p.role || {}
 
-  let out = `<div class="detail"><p class="eyebrow"><b>${esc(p.name)}</b> &nbsp;·&nbsp; `
-    + `${p.pos} ${esc(p.team)}${p.bye ? ` · bye ${p.bye}` : ''}</p>`
-
-  out += '<div class="kv">'
+  // No header here: the drawer supplies its own, and two stacked titles reads as a bug.
+  let out = '<div class="kv">'
   const kv = (k, v) => { out += `<div><div class="k">${k}</div><div class="v">${v}</div></div>` }
   kv('Projected', `${f2(ppg(p))} /g`)
   if (role.tgtShare != null) kv('Target share', `${(role.tgtShare * 100).toFixed(1)}%`)
@@ -952,11 +990,19 @@ function playerDetail(p) {
   }
 
   if (items.length) {
-    out += '<p class="eyebrow" style="margin-top:14px"><b>Where the points come from</b></p>'
-      + '<div class="tablewrap"><table class="data"><tbody>'
-      + items.map((i) => `<tr><td>${esc(i.label)}</td><td class="dim">${esc(i.detail)}</td>`
-        + `<td class="n r">${esc(i.pointsText)}</td></tr>`).join('')
-      + '</tbody></table></div>'
+    // The arithmetic, itemised. Term, the multiplication that produced it, contribution --
+    // and a total that has to agree with the projection at the top of the drawer, which is
+    // the point of showing it at all.
+    const total = items.reduce((sum, i) => sum + (Number(i.points) || 0), 0)
+    out += '<p class="eyebrow" style="margin-top:24px"><b>The arithmetic</b>'
+      + ' &nbsp;·&nbsp; every term, under your scoring</p>'
+      + '<table class="formula"><tbody>'
+      + items.map((i) => `<tr><td class="term">${esc(i.label)}</td>`
+        + `<td class="calc">${esc(i.detail)}</td>`
+        + `<td class="out">${esc(i.pointsText)}</td></tr>`).join('')
+      + `<tr class="total"><td class="term">Projected, per game</td><td class="calc"></td>`
+      + `<td class="out">${f2(total)}</td></tr>`
+      + '</tbody></table>'
   }
 
   // Real history, scored under the user's own settings.
@@ -969,7 +1015,7 @@ function playerDetail(p) {
     })
     const tot = games.reduce((s, g) => s + g.pts, 0)
     const max = Math.max(1, ...games.map((g) => g.pts))
-    out += `<p class="eyebrow" style="margin-top:14px"><b>What he actually did</b> &nbsp;·&nbsp; `
+    out += `<p class="eyebrow" style="margin-top:24px"><b>What he actually did</b> &nbsp;·&nbsp; `
       + `${games.length} games, ${f2(tot / games.length)} /g under your scoring</p>`
       + '<div class="spark">'
       + games.map((g) => `<i class="${g.pts > max * 0.75 ? 'hi' : ''}" style="height:${Math.max(1, (g.pts / max) * 36)}px" `
@@ -978,7 +1024,6 @@ function playerDetail(p) {
       + `<p class="note">Real games from ${PACK.meta.logSeasons.join(' and ')}, re-scored under the settings `
       + 'you have set. Change the scoring and this changes with it.</p>'
   }
-  out += '</div>'
   return out
 }
 
@@ -1535,6 +1580,15 @@ function init() {
     save()
   }
 
+  $('drawerClose').onclick = closeDrawer
+  $('scrim').onclick = closeDrawer
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('drawer').hidden) closeDrawer()
+  })
+
+  wireDragAndDrop()
+  wireCollapsibles()
+
   // The single-file build sits next to this page on the server. Offer it only when there
   // is a server to fetch it from; from a file:// copy the link would point at nothing.
   if (HOSTED) $('offline').hidden = false
@@ -1767,46 +1821,91 @@ function selectedOpponent() {
 function renderProposals(r) {
   const box = $('fResults')
   const n = PACK.meta.regSeasonWeeks || 18
-  let html = `<div class="panel"><p class="eyebrow">`
-    + `<b>Results</b>${r.opponent ? ` &nbsp;·&nbsp; against ${esc(r.opponent)}` : ''} &nbsp;·&nbsp; `
-    + `${r.screened.toLocaleString()} packages screened, ${r.evaluated} evaluated exactly `
-    + `in ${(r.elapsedMs / 1000).toFixed(1)}s</p>`
+  // The funnel, rather than a sentence. How a set this large became a list this short is
+  // the part a reader is entitled to be sceptical about, so it is drawn to scale. The
+  // opponent is named because the option list reorders with side A, and a reader must
+  // never have to infer who a set of proposals was priced against.
+  let html = `<div class="panel">
+    <p class="eyebrow"><b>How this list was built</b>`
+    + `${r.opponent ? ` &nbsp;·&nbsp; against ${esc(r.opponent)}` : ''} &nbsp;·&nbsp; `
+    + `${(r.elapsedMs / 1000).toFixed(1)}s</p>
+    ${funnel([
+    { label: 'Packages screened', n: r.screened },
+    { label: 'Evaluated exactly', n: r.evaluated, exact: true },
+    { label: 'Worth sending', n: r.proposable.length },
+  ])}
+    <p class="note">Screening prices every package on per-player marginal value, which is
+      fast and slightly wrong: losing two backs hurts more than twice losing one. The
+      shortlist is then sampled across bands of perceived fairness rather than taken off the
+      top, because ranking on your own gain alone fills it with fleeces they would never
+      accept — and those survivors get a full week-by-week evaluation with the lineup
+      re-solved, which is the number you actually see.</p>
+  </div>
+  <div class="panel">`
 
   for (const note of r.notes) html += `<div class="flags"><div class="flag info">${esc(note)}</div></div>`
 
   const render = (list, title, sub) => {
     if (!list.length) return ''
-    let h = `<p class="eyebrow" style="margin-top:14px"><b>${esc(title)}</b> &nbsp;·&nbsp; ${esc(sub)}</p>`
-    list.slice(0, 6).forEach((c, i) => {
-      const pct = Math.round(c.acceptance.score * 100)
-      const meterCls = pct >= 65 ? '' : pct >= 45 ? 'mid' : 'low'
+    let h = `<p class="eyebrow" style="margin-top:24px"><b>${esc(title)}</b> &nbsp;·&nbsp; ${esc(sub)}</p>`
+    list.slice(0, 4).forEach((c, i) => {
+      // One shared scale across the two season-points bullets, so their bars are comparable
+      // to each other by length. Two independently-scaled bars side by side look comparable
+      // and are not, which is worse than showing no chart at all.
+      const season = niceBounds([c.myDelta, c.theirDelta, c.marketDelta.me, c.marketDelta.them])
+
       h += `<div class="proposal${i === 0 && title[0] === 'W' ? ' top' : ''}">
-        <div class="deal">
-          <div class="give"><span class="lab">You send</span>${c.give.map((p) =>
-            `<span>${esc(p.name)} <span class="pos" data-p="${p.pos}">${p.pos}</span></span>`).join('')}</div>
-          <div class="arrow">⇄</div>
-          <div class="get"><span class="lab">You get</span>${c.get.map((p) =>
-            `<span>${esc(p.name)} <span class="pos" data-p="${p.pos}">${p.pos}</span></span>`).join('')}</div>
+        ${exchange(c.give, c.get)}
+
+        <div class="instruments g3" style="margin-top:16px">
+          ${bullet({
+    label: '+/- per week',
+    value: c.myPerWeek,
+    ref: c.marketDelta.me / Math.max(n, 1),
+    refLabel: 'name value says',
+    unit: 'pts/wk',
+    sub: 'your starting lineup, week by week',
+  })}
+          ${bullet({
+    label: 'Season points added',
+    value: c.myDelta,
+    ref: c.marketDelta.me,
+    refLabel: 'name value says',
+    unit: 'pts',
+    bounds: season,
+    sub: `playoff weeks ${sign(c.myPlayoffDelta)}${f1(c.myPlayoffDelta)}`,
+  })}
+          ${bullet({
+    label: 'Truly worth to them',
+    value: c.theirDelta,
+    ref: c.marketDelta.them,
+    refLabel: 'they will perceive',
+    unit: 'pts',
+    bounds: season,
+    sub: 'solved for their lineup, not yours',
+  })}
         </div>
-        <div class="stats">
-          <div class="stat"><div class="k">Your starters</div>
-            <div class="v ${cls(c.myDelta)}">${sign(c.myPerWeek)}${f1(c.myPerWeek)}/wk</div>
-            <div class="n">${sign(c.myDelta)}${f1(c.myDelta)} over the season</div></div>
-          <div class="stat"><div class="k">Playoff weeks</div>
-            <div class="v ${cls(c.myPlayoffDelta)}">${sign(c.myPlayoffDelta)}${f1(c.myPlayoffDelta)}</div></div>
-          <div class="stat"><div class="k">They perceive</div>
-            <div class="v ${cls(c.marketDelta.them)}">${sign(c.marketDelta.them)}${f1(c.marketDelta.them)}</div>
-            <div class="n">on name value</div></div>
-          <div class="stat"><div class="k">Truly worth to them</div>
-            <div class="v ${cls(c.theirDelta)}">${sign(c.theirDelta)}${f1(c.theirDelta)}</div></div>
-          <div class="stat"><div class="k">Fits their lineup</div>
-            <div class="v">${Math.round(c.acceptance.fit * 100)}%</div></div>
-          <div class="stat"><div class="k">Would they accept</div>
-            <div class="v">${pct}%</div>
-            <div class="meter ${meterCls}"><i style="width:${pct}%"></i></div></div>
+
+        <div class="instruments g2" style="margin-top:1px">
+          ${gauge({
+    label: 'Would they accept',
+    value: c.acceptance.score,
+    tick: 0.5,
+    sub: 'the mark is where a deal becomes worth sending',
+  })}
+          ${gauge({
+    label: 'Fits their lineup',
+    value: c.acceptance.fit,
+    sub: 'how much of what they receive actually starts',
+  })}
         </div>
-        <p class="note" style="margin-top:8px">${esc(c.acceptance.read)}</p>
-        <button class="btn" data-load="${i}" data-kind="${title[0]}">Open this in the trade view</button>
+
+        <p class="note">${esc(c.acceptance.read)}</p>
+        <details class="ghostwrap">
+          <summary>Ghosting matrix &nbsp;·&nbsp; what they are left holding, and what they counter with</summary>
+          <div class="ghostslot" data-ghost="${title[0]}-${i}"></div>
+        </details>
+        <button class="btn" data-load="${i}" data-kind="${title[0]}" style="margin-top:12px">Open this in the trade view</button>
       </div>`
     })
     return h
@@ -1816,6 +1915,10 @@ function renderProposals(r) {
   html += render(r.longshots, 'Longshots', 'better for you, but they will likely refuse')
   html += '</div>'
   box.innerHTML = html
+
+  // The ghosting matrix. Deferred per card so the results paint immediately -- each one
+  // re-solves the opponent's roster shape, and there can be twelve of them.
+  setTimeout(() => renderGhosts(r, box), 0)
 
   box.querySelectorAll('[data-load]').forEach((b) => {
     b.onclick = () => {
@@ -1832,6 +1935,169 @@ function renderProposals(r) {
       show('trade')
     }
   })
+}
+
+/**
+ * What they are left holding, and what they come back with.
+ *
+ * The offer you send is rarely the deal you sign, so the counter is treated as part of
+ * the proposal rather than as something that happens to you afterwards.
+ */
+function renderGhosts(r, box) {
+  const opp = state.finder._options?.[Number($('fOpponent').value) || 0]
+  if (!opp) return
+  const mineRoster = roster('A')
+  const theirRoster = opp.players.map((id) => withStatus(byId.get(id))).filter(Boolean)
+  const replacement = currentReplacement()
+
+  for (const slot of box.querySelectorAll('.ghostslot')) {
+    const [kind, idxRaw] = (slot.getAttribute('data-ghost') || '').split('-')
+    const list = kind === 'W' ? r.proposable : r.longshots
+    const c = list[Number(idxRaw)]
+    if (!c) continue
+
+    const give = c.give.map((p) => byId.get(p.id)).filter(Boolean)
+    const get = c.get.map((p) => byId.get(p.id)).filter(Boolean)
+    const cp = counterplay({
+      myRoster: mineRoster, theirRoster, give, get,
+      cfg: state.cfg, league: state.league, replacement,
+    })
+
+    if (!cp.exposed.length && !cp.canGive.length) {
+      slot.innerHTML = `<div class="ghost"><div class="ghost-head">Ghosting matrix</div>
+        <div class="ghost-body"><p class="ghost-why" style="margin:0">This leaves their roster
+        balanced. No obvious counter to anticipate — if they say no, it is on value, not
+        on shape.</p></div></div>`
+      continue
+    }
+
+    // No repeated title: the <summary> the reader just clicked already said what this is.
+    let h = '<div class="ghost"><div class="ghost-body">'
+
+    for (const e of cp.exposed.slice(0, 2)) {
+      h += `<div class="ghost-row">
+        <span class="pos" data-p="${esc(e.pos)}">${esc(e.pos)}</span>
+        <span class="ghost-why">This deal leaves them
+          ${e.filled < e.canStart
+    ? `<b>${e.canStart - e.filled} short</b> of filling ${esc(e.pos)}`
+    : `<b>thin at ${esc(e.pos)}</b>, starting players no better than the wire`}.
+          Expect them to push back here.</span>
+        <span class="ghost-tag warn">exposed</span>
+      </div>`
+    }
+
+    if (cp.likelyAsk.length) {
+      const names = cp.likelyAsk.slice(0, 3).map((p) => esc(p.name)).join(', ')
+      const affordable = cp.likelyAsk.every((p) => p.fromSurplus)
+      h += `<div class="ghost-row">
+        <span class="ghost-tag">ask</span>
+        <span class="ghost-why">They will most likely name <b>${names}</b> to fix it.
+          ${affordable
+    ? 'All of those are spare parts on your roster — a counter you can afford to take.'
+    : 'At least one of those is a starter for you, so read the counter carefully.'}</span>
+        <span class="ghost-tag">${affordable ? 'affordable' : 'costly'}</span>
+      </div>`
+    }
+
+    if (cp.canGive.length) {
+      const g = cp.canGive[0]
+      const names = g.names.map((p) => esc(p.name)).join(', ')
+      h += `<div class="ghost-row">
+        <span class="pos" data-p="${esc(g.pos)}">${esc(g.pos)}</span>
+        <span class="ghost-why">They stay deep at ${esc(g.pos)}${names ? ` — <b>${names}</b> sit behind their starters` : ''}.
+          That is what to ask for if this comes back.</span>
+        <span class="ghost-tag">their depth</span>
+      </div>`
+    }
+
+    slot.innerHTML = `${h}</div></div>`
+  }
+}
+
+/**
+ * Any panel marked data-collapsible folds to its own eyebrow.
+ *
+ * Delegated at the document, so panels that are rendered later collapse the same way as
+ * the ones present at boot, and the state survives the re-render because it lives on the
+ * element rather than in a table of ids.
+ */
+function wireCollapsibles() {
+  document.addEventListener('click', (e) => {
+    const eyebrow = e.target.closest('.panel[data-collapsible] > .eyebrow')
+    if (!eyebrow) return
+    // A control inside the eyebrow -- "Clear", "Load a demo league" -- is not the toggle.
+    if (e.target.closest('button, a, select, input')) return
+    const panel = eyebrow.parentElement
+    const open = panel.classList.toggle('collapsed')
+    eyebrow.setAttribute('aria-expanded', String(!open))
+  })
+  for (const eyebrow of document.querySelectorAll('.panel[data-collapsible] > .eyebrow')) {
+    eyebrow.setAttribute('role', 'button')
+    eyebrow.setAttribute('tabindex', '0')
+    eyebrow.setAttribute('aria-expanded', 'true')
+    eyebrow.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); eyebrow.click() }
+    })
+  }
+}
+
+/**
+ * Drag a player from one roster into the other.
+ *
+ * The arrow button already does this and stays, because it is faster, reachable by
+ * keyboard, and the only option on a phone. Drag is the affordance people reach for
+ * first on a desktop when two lists sit side by side, and its absence reads as the app
+ * being broken rather than as a deliberate choice.
+ *
+ * Delegated from the container so it survives every re-render -- the rows are rebuilt
+ * from scratch on every keystroke, and per-row listeners would be re-bound each time.
+ */
+function wireDragAndDrop() {
+  let dragging = null
+
+  for (const side of ['A', 'B']) {
+    const box = $(`rows${side}`)
+
+    box.addEventListener('dragstart', (e) => {
+      const row = e.target.closest('.row')
+      if (!row || !row.dataset.id) return
+      dragging = { id: row.dataset.id, from: side }
+      row.classList.add('dragging')
+      e.dataTransfer.effectAllowed = 'move'
+      // Firefox will not start a drag without data on the transfer.
+      e.dataTransfer.setData('text/plain', row.dataset.id)
+    })
+
+    box.addEventListener('dragend', () => {
+      for (const r of document.querySelectorAll('.row.dragging')) r.classList.remove('dragging')
+      for (const z of document.querySelectorAll('.rows.dropzone')) z.classList.remove('dropzone')
+      dragging = null
+    })
+
+    box.addEventListener('dragover', (e) => {
+      if (!dragging || dragging.from === side) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      box.classList.add('dropzone')
+    })
+
+    box.addEventListener('dragleave', (e) => {
+      if (!box.contains(e.relatedTarget)) box.classList.remove('dropzone')
+    })
+
+    box.addEventListener('drop', (e) => {
+      box.classList.remove('dropzone')
+      if (!dragging || dragging.from === side) return
+      e.preventDefault()
+      // Dropping onto the other side is the same operation the arrow performs: mark the
+      // player as moving in this trade. It is not a roster edit, so nothing is destroyed
+      // and the move is undone by clicking the arrow again.
+      state.move[dragging.id] = true
+      dragging = null
+      renderTrade()
+      save()
+    })
+  }
 }
 
 function runFinder() {

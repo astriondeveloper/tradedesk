@@ -130,9 +130,39 @@ const firstPlayer = await page.locator('#pBody tr td.name').first().textContent(
 note((firstPlayer || '').trim().length > 3, 'players table shows real names', firstPlayer || '')
 await page.locator('#pBody tr').first().click()
 await page.waitForTimeout(700)
-const detailShown = await page.locator('#pDetail .kv').count()
-note(detailShown > 0, 'player detail opens')
+note(await page.locator('#drawer').isVisible(), 'the player drawer opens')
+note(await page.locator('#drawer .kv').count() > 0, 'drawer carries the role breakdown')
+const drawerName = await page.locator('#drawerTitle').textContent()
+note((drawerName || '').trim().length > 3, 'drawer is titled with the player', drawerName || '')
+
+// The arithmetic has to total to the projection shown at the top of the same drawer, or
+// the itemisation is decorative. Compare the formula's total row against the header.
+const arithmetic = await page.evaluate(() => {
+  const rows = [...document.querySelectorAll('#drawer .formula tr')]
+  const total = rows.find((r) => r.classList.contains('total'))
+  // Per span, not over the whole textContent: adjacent spans concatenate with no
+  // separator, so "bye 6" followed by "21.05 pts/g" reads as "bye 621.05 pts/g".
+  const head = [...document.querySelectorAll('#drawerSub span')]
+    .map((s) => s.textContent.trim())
+    .find((t) => /pts\/g$/.test(t))
+  return {
+    terms: rows.length - 1,
+    total: total ? parseFloat(total.querySelector('.out').textContent) : null,
+    header: head ? parseFloat(head) : null,
+  }
+})
+note(arithmetic.terms > 3, 'the points formula is itemised', `${arithmetic.terms} terms`)
+note(arithmetic.total != null && arithmetic.header != null
+  && Math.abs(arithmetic.total - arithmetic.header) < 0.06,
+'the itemised terms add up to the projection',
+`${arithmetic.total} vs ${arithmetic.header}`)
 await page.screenshot({ path: join(SHOTS, 'desktop-players.png'), fullPage: true })
+
+// Escape closes it, and the grid underneath is still there.
+await page.keyboard.press('Escape')
+await page.waitForTimeout(400)
+note(await page.locator('#drawer').isHidden(), 'escape closes the drawer')
+note(await page.locator('#pBody tr').count() > 20, 'the grid survives the drawer closing')
 
 // --- draft --------------------------------------------------------------------
 await page.locator('nav.tabs button[data-view="draft"]').click()
@@ -183,8 +213,46 @@ note(proposals > 0 || /screened/.test(resultText || ''), 'the finder returns res
 note(!/NaN|undefined/.test(resultText || ''), 'no NaN in the proposals',
   (resultText || '').match(/NaN|undefined/g)?.slice(0, 2).join(',') || '')
 if (proposals > 0) {
-  const accept = await page.locator('#fResults .proposal .meter i').first().getAttribute('style')
-  note(/width:\s*\d+%/.test(accept || ''), 'acceptance meter renders', accept || '')
+  const accept = await page.locator('#fResults .proposal .gauge .g-fill').first().getAttribute('style')
+  note(/width:\s*[\d.]+%/.test(accept || ''), 'acceptance gauge renders', accept || '')
+
+  // The exchange matrix has to be two framed halves, not one list.
+  note(await page.locator('#fResults .proposal .exchange .ex-side.send').count() > 0
+    && await page.locator('#fResults .proposal .exchange .ex-side.get').count() > 0,
+  'the exchange matrix frames send and get separately')
+
+  // A bullet without a comparator is just a bar. Every bullet that claims one must draw it.
+  const bullets = await page.locator('#fResults .proposal .bullet').count()
+  const zeros = await page.locator('#fResults .proposal .bl-zero').count()
+  const refs = await page.locator('#fResults .proposal .bl-ref').count()
+  note(bullets > 0 && zeros === bullets, 'every bullet is anchored to a drawn zero',
+    `${bullets} bullets, ${zeros} zero rules`)
+  note(refs > 0, 'bullets carry the naive-value comparator', `${refs} reference markers`)
+
+  // Geometry: a bar must never escape its track.
+  const overflow = await page.evaluate(() => {
+    const bad = []
+    for (const b of document.querySelectorAll('#fResults .bl-bar')) {
+      const left = parseFloat(b.style.left) || 0
+      const width = parseFloat(b.style.width) || 0
+      if (left < -0.01 || left + width > 100.01) bad.push(`${left}+${width}`)
+    }
+    return bad
+  })
+  note(overflow.length === 0, 'no bullet bar overflows its track', overflow.slice(0, 2).join(', '))
+
+  const funnelSteps = await page.locator('#fResults .funnel .fn-step').count()
+  note(funnelSteps === 3, 'the screening funnel is drawn', `${funnelSteps} steps`)
+  const funnelNums = await page.locator('#fResults .funnel .fn-n').allTextContents()
+  const parsed = funnelNums.map((t) => parseInt(t.replace(/[^\d]/g, ''), 10))
+  note(parsed.length === 3 && parsed[0] >= parsed[1] && parsed[1] >= parsed[2],
+    'the funnel actually narrows', parsed.join(' -> '))
+
+  await page.waitForTimeout(2500)
+  const ghosts = await page.locator('#fResults .ghost').count()
+  note(ghosts > 0, 'the ghosting matrix renders', `${ghosts} cards`)
+  const ghostText = await page.locator('#fResults .ghost').first().textContent()
+  note(!/NaN|undefined/.test(ghostText || ''), 'no NaN in the ghosting matrix')
 }
 await page.screenshot({ path: join(SHOTS, 'desktop-propose.png'), fullPage: true })
 

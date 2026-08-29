@@ -12,7 +12,7 @@
  *      depth in this file. Shadows blur edges; a technical panel wants a hard edge.
  *
  *   2. DUAL FONTS, NON-NEGOTIABLE. Inter for anything a human reads as language: labels,
- *      headers, names, prose. IBM Plex Mono for every number without exception, on tabular
+ *      headers, names, prose. JetBrains Mono for every number without exception, on tabular
  *      figures, so a column of digits is scannable vertically as a column.
  *
  *   3. THE 8px GRID. Every margin, padding and gap is a multiple of 8, or of 4 where a
@@ -30,36 +30,52 @@
  */
 
 :root {
-  /* Elevation. Three steps, each a real hex value rather than an opacity, so nested
-     surfaces never accumulate into mud. */
-  --base:   #0B0F19;
-  --panel:  #111827;
-  --raise:  #1F2937;
-  --sunken: #0D1320;
+  /* Elevation. Deep navy ground, steel-gray paneling, each a real hex value rather than an
+     opacity, so nested surfaces never accumulate into mud. */
+  --base:   #080D18;
+  --panel:  #101827;
+  --raise:  #1B2536;
+  --sunken: #0B111E;
 
   /* Separation is a hairline, never a shadow. */
-  --edge:        rgba(255, 255, 255, 0.08);
-  --edge-strong: rgba(255, 255, 255, 0.16);
-  --edge-faint:  rgba(255, 255, 255, 0.04);
+  --edge:        rgba(255, 255, 255, 0.07);
+  --edge-strong: rgba(255, 255, 255, 0.15);
+  --edge-faint:  rgba(255, 255, 255, 0.035);
 
   --chalk: #E6EAF2;
-  --muted: #8B97A8;
-  --dim:   #5B6678;
+  --muted: #9BA7B8;
+  --dim:   #838FA1;
 
-  /* Muted to enterprise-financial intensity. The saturated consumer green and red read as
-     alarms; at this density every row would be shouting. These sit at 4.5:1+ on the panel
-     surface, so they are still accessible, just not louder than the data. */
-  --gain: #4E9E7E;
-  --loss: #C86F60;
-  --gain-bg: rgba(78, 158, 126, 0.09);
-  --loss-bg: rgba(200, 111, 96, 0.09);
+  /*
+   * The diverging pair: muted sage for gains, dusty terracotta for losses. Desaturated on
+   * purpose -- at this density a saturated green/red pair reads as a wall of alarms.
+   *
+   * These exact values were not chosen by eye. The first pair that looked right,
+   * #7FA88C / #C08A76, FAILED a colorblindness check at deuteranope delta-E 3.1 and a
+   * normal-vision delta-E of 11.2: desaturating a green and a red moves them toward the
+   * same gray, and a red-green colorblind reader could not have told a gain from a loss.
+   * Separating them on LIGHTNESS as well as hue is what fixes it. The shipped pair scores
+   * deutan 15.5 / normal 20.8, comfortably clear.
+   *
+   * Two terracottas, because contrast and separation pull opposite ways. The fill is the
+   * darker step (3.7:1 -- the correct floor for a bar, which is a graphical object); the
+   * ink is a lighter step that clears 4.5:1 for small type on every surface here. And the
+   * sign is always drawn as a + or - glyph next to the colour, so direction never depends
+   * on hue alone.
+   */
+  --gain:      #8FBBA0;
+  --loss:      #BE7A64;
+  --gain-fill: #8FBBA0;
+  --loss-fill: #B06A55;
+  --neutral:   #6E7A8C;   /* the midpoint of the diverging scale: no change */
+  --gain-bg: rgba(143, 187, 160, 0.10);
+  --loss-bg: rgba(190, 122, 100, 0.10);
 
   --amber:    #E0B040;
   --amber-bg: rgba(224, 176, 64, 0.09);
-  --amber-ink: #17110300;
 
   --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
   /* The grid. Everything spatial is derived from these. */
   --u:  8px;
@@ -377,8 +393,8 @@ label.fld > span {
   justify-content: flex-end; height: 100%;
 }
 .wk i { display: block; background: var(--dim); border-radius: 0; min-height: 1px; }
-.wk.pos i { background: var(--gain); }
-.wk.neg i { background: var(--loss); }
+.wk.pos i { background: var(--gain-fill); }
+.wk.neg i { background: var(--loss-fill); }
 .wk.playoff::after {
   content: ""; position: absolute; left: 0; right: 0; bottom: -4px;
   height: 2px; background: var(--amber);
@@ -405,9 +421,9 @@ label.fld > span {
 .tablewrap { overflow-x: auto; }
 table.data { width: 100%; border-collapse: collapse; font-size: 12px; }
 table.data th {
-  font-family: var(--sans); font-size: 9px; font-weight: 500; letter-spacing: 0.12em;
+  font-family: var(--sans); font-size: 9px; font-weight: 600; letter-spacing: 0.14em;
   text-transform: uppercase; color: var(--dim); text-align: left;
-  padding: 0 12px var(--u) 0; border-bottom: 1px solid var(--edge);
+  padding: 0 16px 12px 0; border-bottom: 1px solid var(--edge);
   white-space: nowrap; cursor: pointer; user-select: none;
 }
 table.data th:hover { color: var(--muted); }
@@ -415,7 +431,7 @@ table.data th[aria-sort] { color: var(--amber); }
 /* Numbers right, identity left -- the same contract the roster rows keep. */
 table.data th.r, table.data td.r { text-align: right; }
 table.data td {
-  padding: var(--u) 12px var(--u) 0; border-bottom: 1px solid var(--edge-faint);
+  padding: 12px 16px 12px 0; border-bottom: 1px solid var(--edge-faint);
   white-space: nowrap;
 }
 table.data td.name { white-space: normal; min-width: 160px; font-weight: 500; }
@@ -439,8 +455,12 @@ td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
 .detail { border-top: 1px solid var(--edge); margin-top: var(--u2); padding-top: var(--u2); }
 .kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(136px, 1fr)); gap: 1px; }
-.kv div {
-  background: var(--sunken); border: 1px solid var(--edge-faint); padding: var(--u) 12px;
+/* Child, not descendant. As `.kv div` this also matched the nested .k and .v inside each
+   cell, so every label and every value drew its own border and took the padding a second
+   time -- boxes inside boxes. Invisible in the markup and obvious the moment the drawer
+   was looked at. */
+.kv > div {
+  background: var(--sunken); border: 1px solid var(--edge-faint); padding: 12px var(--u2);
 }
 .kv .k {
   font-family: var(--sans); font-size: 9px; font-weight: 500; letter-spacing: 0.12em;
@@ -527,8 +547,8 @@ a.btn { text-decoration: none; display: inline-block; }
 .meter {
   height: 4px; border-radius: 0; background: var(--edge); overflow: hidden; margin-top: 4px;
 }
-.meter i { display: block; height: 100%; background: var(--gain); }
-.meter.low i { background: var(--loss); }
+.meter i { display: block; height: 100%; background: var(--gain-fill); }
+.meter.low i { background: var(--loss-fill); }
 .meter.mid i { background: var(--amber); }
 
 .statuspick {
@@ -590,8 +610,8 @@ a.btn { text-decoration: none; display: inline-block; }
 }
 .posbar .track { height: 3px; background: var(--edge); margin-top: var(--u); }
 .posbar .track i { display: block; height: 100%; background: var(--muted); }
-.posbar.surplus .track i { background: var(--gain); }
-.posbar.hole .track i { background: var(--loss); }
+.posbar.surplus .track i { background: var(--gain-fill); }
+.posbar.hole .track i { background: var(--loss-fill); }
 .posbar.surplus .v { color: var(--gain); }
 .posbar.hole .v { color: var(--loss); }
 
@@ -636,3 +656,325 @@ a.btn { text-decoration: none; display: inline-block; }
     transition: background-color .1s linear, border-color .1s linear, color .1s linear;
   }
 }
+
+/* ==================================================================== instruments
+ *
+ * The measured components. Three rules govern all of them:
+ *
+ *   Zero is a position, not a colour. Every diverging mark is anchored to a real zero
+ *   line on a shared scale, so "worse" is left of the line and "better" is right of it
+ *   before any hue is involved. Direction survives a colourblind reader, a greyscale
+ *   print, and a glance.
+ *
+ *   A bullet chart needs a comparator or it is just a bar. Each one here carries a
+ *   reference marker showing what a NAIVE reading of the same trade would say -- the
+ *   point-summing number, or what the other manager perceives. The gap between the bar
+ *   and the marker is the entire thesis of this app, drawn.
+ *
+ *   Marks are thin and recessive; the number is the loud part.
+ */
+
+.instruments { display: grid; gap: 1px; }
+
+.bullet {
+  background: var(--sunken); border: 1px solid var(--edge-faint);
+  padding: 12px var(--u2);
+}
+.bl-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--u);
+}
+.bl-k {
+  font-family: var(--sans); font-size: 9px; font-weight: 600; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--dim);
+}
+.bl-v {
+  font-family: var(--mono); font-size: 15px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.bl-sub { font-family: var(--sans); font-size: 10px; color: var(--dim); margin-top: 2px; }
+
+.bl-track {
+  position: relative; height: 10px; margin-top: 12px;
+  background: linear-gradient(var(--edge-faint), var(--edge-faint)) center/100% 2px no-repeat;
+}
+/* The zero rule, drawn in the neutral midpoint of the diverging scale. */
+.bl-zero {
+  position: absolute; top: -2px; bottom: -2px; width: 1px;
+  background: var(--neutral);
+}
+.bl-bar {
+  position: absolute; top: 2px; height: 6px; min-width: 2px;
+  background: var(--neutral);
+}
+/* 4px rounded end on the data end only -- the baseline end stays square against zero. */
+.bl-bar.pos { background: var(--gain-fill); border-radius: 0 4px 4px 0; }
+.bl-bar.neg { background: var(--loss-fill); border-radius: 4px 0 0 4px; }
+
+/* The comparator: what point-summing, or the other manager, would say. */
+.bl-ref {
+  position: absolute; top: -3px; height: 16px; width: 2px; background: var(--chalk);
+}
+.bl-ref::after {
+  content: ""; position: absolute; inset: -1px; border-left: 2px solid var(--panel);
+}
+.bl-scale {
+  display: flex; justify-content: space-between; margin-top: 4px;
+  font-family: var(--mono); font-size: 9px; color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.bl-legend {
+  font-family: var(--sans); font-size: 10px; color: var(--dim); margin-top: var(--u);
+  display: flex; align-items: center; gap: 6px;
+}
+.bl-legend i { display: inline-block; width: 2px; height: 10px; background: var(--chalk); }
+
+/* ----------------------------------------------------------------- gauges */
+
+/* A percentage is magnitude on a fixed 0-100 track, so it gets a plain bar, not a dial.
+   The label and the value are the readout; the bar is the shape of it. */
+.gauge { padding: 12px var(--u2); background: var(--sunken); border: 1px solid var(--edge-faint); }
+.gauge .g-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--u);
+}
+.gauge .g-k {
+  font-family: var(--sans); font-size: 9px; font-weight: 600; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--dim);
+}
+.gauge .g-v {
+  font-family: var(--mono); font-size: 15px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.gauge .g-track {
+  position: relative; height: 6px; margin-top: 12px; background: var(--edge);
+}
+.gauge .g-fill { display: block; height: 100%; background: var(--neutral); border-radius: 0 3px 3px 0; }
+.gauge.hi .g-fill { background: var(--gain-fill); }
+.gauge.mid .g-fill { background: var(--amber); }
+.gauge.lo .g-fill { background: var(--loss-fill); }
+.gauge.hi .g-v { color: var(--gain); }
+.gauge.mid .g-v { color: var(--amber); }
+.gauge.lo .g-v { color: var(--loss); }
+/* Threshold ticks: where "worth sending" begins, so a bare percentage has a meaning. */
+.gauge .g-tick { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--edge-strong); }
+.gauge .g-sub { font-family: var(--sans); font-size: 10px; color: var(--dim); margin-top: 6px; }
+
+/* ----------------------------------------------------------------- funnel */
+
+/* How a shortlist got to the screen. Widths are proportional to the counts, so the drop
+   from "screened" to "evaluated exactly" is visible rather than asserted. */
+.funnel { display: flex; flex-direction: column; gap: 4px; }
+.fn-step {
+  display: grid; grid-template-columns: 168px 1fr 88px; align-items: center; gap: var(--u2);
+}
+.fn-bar { height: 16px; background: var(--sunken); position: relative; }
+.fn-bar i {
+  position: absolute; left: 0; top: 0; bottom: 0; background: var(--edge-strong);
+  border-radius: 0 2px 2px 0;
+}
+.fn-bar.exact i { background: var(--amber); }
+.fn-lab {
+  font-family: var(--sans); font-size: 9px; font-weight: 600; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--dim); white-space: nowrap;
+}
+.fn-step:has(.fn-bar.exact) .fn-lab { color: var(--amber); }
+.fn-n {
+  font-family: var(--mono); font-size: 12px; text-align: right; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.fn-bar.exact ~ .fn-n { color: var(--amber); }
+@media (max-width: 560px) { .fn-step { grid-template-columns: 120px 1fr 64px; gap: var(--u); } }
+
+/* ------------------------------------------------------- the exchange matrix */
+
+/* YOU SEND and YOU GET as two framed halves of one instrument, with the direction of
+   travel drawn between them. Two panels floating side by side would read as two lists. */
+.exchange {
+  display: grid; grid-template-columns: 1fr 40px 1fr; align-items: stretch;
+  border: 1px solid var(--edge); background: var(--panel);
+}
+.ex-side { padding: 12px var(--u2); min-width: 0; }
+.ex-side.send { border-right: 1px solid var(--edge-faint); }
+.ex-side.get  { border-left: 1px solid var(--edge-faint); }
+.ex-k {
+  font-family: var(--sans); font-size: 9px; font-weight: 600; letter-spacing: 0.16em;
+  text-transform: uppercase; margin-bottom: var(--u);
+}
+.ex-side.send .ex-k { color: var(--loss); }
+.ex-side.get  .ex-k { color: var(--gain); }
+.ex-p { display: flex; align-items: baseline; gap: 6px; margin-bottom: 2px; min-width: 0; }
+.ex-p .nm { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.ex-mid {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--sunken); border-left: 1px solid var(--edge-faint);
+  border-right: 1px solid var(--edge-faint);
+  font-family: var(--mono); font-size: 13px; color: var(--dim);
+}
+@media (max-width: 560px) {
+  .exchange { grid-template-columns: 1fr; }
+  .ex-mid { height: 24px; border-left: 0; border-right: 0; border-top: 1px solid var(--edge-faint); border-bottom: 1px solid var(--edge-faint); }
+  .ex-side.send, .ex-side.get { border: 0; }
+}
+
+/* ------------------------------------------------------- the ghosting matrix */
+
+/* What they are left holding, and what they come back asking for. A trade is a
+   negotiation, not a transaction, so the anticipated counter is first-class. */
+.ghost { border: 1px solid var(--edge); border-left: 2px solid var(--neutral); background: var(--sunken); }
+.ghost-head {
+  padding: var(--u) var(--u2); border-bottom: 1px solid var(--edge-faint);
+  font-family: var(--sans); font-size: 9px; font-weight: 600; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--dim);
+  display: flex; align-items: center; gap: var(--u); flex-wrap: wrap;
+}
+.ghost-body { padding: 12px var(--u2); }
+.ghost-row {
+  display: grid; grid-template-columns: 52px 1fr auto; gap: var(--u2);
+  align-items: baseline; padding: 6px 0;
+}
+.ghost-row + .ghost-row { border-top: 1px solid var(--edge-faint); }
+.ghost-why { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.ghost-why b { color: var(--chalk); font-weight: 600; }
+.ghost-tag {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+  padding: 1px 6px; border: 1px solid var(--edge); color: var(--dim); white-space: nowrap;
+}
+.ghost-tag.warn { color: var(--amber); border-color: rgba(224, 176, 64, 0.35); }
+
+/* ------------------------------------------------------------- collapsible */
+
+/* Modular panels. The summary row keeps the eyebrow's typography so a collapsed module
+   still reads as part of the same system. */
+details.mod {
+  background: var(--panel); border: 1px solid var(--edge); border-radius: var(--r);
+  margin-bottom: var(--u2);
+}
+details.mod > summary {
+  list-style: none; cursor: pointer; padding: var(--u2);
+  font-family: var(--sans); font-size: 10px; font-weight: 500; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--dim);
+  display: flex; align-items: center; gap: var(--u);
+}
+details.mod > summary::-webkit-details-marker { display: none; }
+details.mod > summary b { color: var(--muted); font-weight: 600; }
+details.mod > summary .spacer { margin-left: auto; }
+details.mod > summary::after {
+  content: "\2212"; color: var(--dim); font-family: var(--mono); font-size: 13px;
+  margin-left: var(--u);
+}
+details.mod:not([open]) > summary::after { content: "+"; }
+details.mod:not([open]) > summary { color: var(--muted); }
+.mod-body { padding: 0 var(--u2) var(--u2); }
+
+/* -------------------------------------------------------------- drag state */
+
+.row[draggable="true"] { cursor: grab; }
+.row.dragging { opacity: 0.4; cursor: grabbing; }
+.rows.dropzone {
+  outline: 1px dashed var(--amber); outline-offset: 4px;
+  background: var(--amber-bg);
+}
+
+/* ------------------------------------------------------------------ drawer */
+
+/* The player drill-down. A modal would cover the grid it was opened from; a right-hand
+   drawer keeps the row you clicked visible so the detail reads as an expansion of it. */
+.scrim {
+  position: fixed; inset: 0; background: rgba(4, 7, 14, 0.72);
+  z-index: 90; opacity: 0;
+}
+.scrim.on { opacity: 1; }
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw);
+  background: var(--panel); border-left: 1px solid var(--edge-strong);
+  z-index: 91; overflow-y: auto; transform: translateX(100%);
+  display: flex; flex-direction: column;
+}
+.drawer.on { transform: translateX(0); }
+.drawer-head {
+  position: sticky; top: 0; background: var(--panel); z-index: 2;
+  padding: var(--u3) var(--u3) var(--u2);
+  border-bottom: 1px solid var(--edge);
+  display: flex; align-items: flex-start; gap: var(--u2);
+}
+.drawer-head h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: 0.01em; }
+.drawer-head .sub {
+  font-family: var(--mono); font-size: 10px; color: var(--dim); letter-spacing: 0.08em;
+  text-transform: uppercase; margin-top: 6px; display: flex; gap: var(--u); align-items: center;
+}
+.drawer-close {
+  margin-left: auto; background: none; border: 1px solid var(--edge); color: var(--muted);
+  width: 28px; height: 28px; border-radius: var(--r-sm); cursor: pointer;
+  font-family: var(--mono); font-size: 14px; line-height: 1; flex: none;
+}
+.drawer-close:hover { border-color: var(--edge-strong); color: var(--chalk); }
+.drawer-body { padding: var(--u3); }
+.drawer-body .eyebrow { margin-top: var(--u3); }
+.drawer-body .eyebrow:first-child { margin-top: 0; }
+
+/* The points formula, itemised. Deliberately a ledger: term, arithmetic, contribution. */
+.formula { width: 100%; border-collapse: collapse; font-size: 12px; }
+.formula td {
+  padding: var(--u) 0; border-bottom: 1px solid var(--edge-faint); vertical-align: baseline;
+}
+.formula td.term { color: var(--muted); }
+.formula td.calc {
+  font-family: var(--mono); font-size: 11px; color: var(--dim); text-align: right;
+  padding-right: var(--u2); font-variant-numeric: tabular-nums;
+}
+.formula td.out {
+  font-family: var(--mono); text-align: right; width: 72px;
+  font-variant-numeric: tabular-nums;
+}
+.formula tr.total td { border-bottom: 0; border-top: 1px solid var(--edge); font-weight: 600; }
+.formula tr.total td.out { color: var(--amber); font-size: 14px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Calibrated to feel immediate rather than animated: the drawer is the only thing that
+     travels, and it is done in 140ms. Anything slower reads as lag on a control surface. */
+  .scrim { transition: opacity .12s linear; }
+  .drawer { transition: transform .14s cubic-bezier(.32, .72, 0, 1); }
+  .bl-bar, .gauge .g-fill, .fn-bar i { transition: width .16s cubic-bezier(.32, .72, 0, 1); }
+}
+
+/* ------------------------------------------------------- collapsible panels
+ *
+ * Progressive enhancement rather than a <details> rewrite: any panel that opts in with
+ * data-collapsible gets a toggle on its own eyebrow, so the collapsed and expanded states
+ * share one piece of typography and the markup of every view stays as it was.
+ */
+.panel[data-collapsible] > .eyebrow { cursor: pointer; user-select: none; }
+.panel[data-collapsible] > .eyebrow:hover { color: var(--muted); }
+.panel[data-collapsible] > .eyebrow::after {
+  content: "\2212"; font-family: var(--mono); font-size: 13px; color: var(--dim);
+  margin-left: var(--u);
+}
+.panel[data-collapsible]:not(:has(.spacer)) > .eyebrow::after { margin-left: auto; }
+.panel.collapsed > .eyebrow { margin-bottom: 0; color: var(--muted); }
+.panel.collapsed > .eyebrow::after { content: "+"; }
+.panel.collapsed > *:not(.eyebrow) { display: none; }
+
+/* The ghosting matrix is genuinely useful and genuinely secondary: twelve of them expanded
+   turns the results into a scroll. Collapsed by default, one line to open. */
+details.ghostwrap { margin-top: 12px; }
+details.ghostwrap > summary {
+  list-style: none; cursor: pointer;
+  font-family: var(--sans); font-size: 10px; font-weight: 500; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--dim);
+  padding: var(--u) 0; display: flex; align-items: center; gap: var(--u);
+}
+details.ghostwrap > summary::-webkit-details-marker { display: none; }
+details.ghostwrap > summary::before {
+  content: "+"; font-family: var(--mono); font-size: 12px; color: var(--dim);
+  width: 12px; flex: none;
+}
+details.ghostwrap[open] > summary::before { content: "\2212"; }
+details.ghostwrap > summary:hover { color: var(--muted); }
+
+/* Denser instruments. The brief is high density with generous padding INSIDE tables, not
+   generous padding around every readout. */
+.bullet, .gauge { padding: var(--u) 12px; }
+.bl-track { margin-top: var(--u); height: 8px; }
+.bl-bar { top: 1px; height: 6px; }
+.gauge .g-track { margin-top: var(--u); }
+.bl-legend { margin-top: 6px; }
+.bl-v, .gauge .g-v { font-size: 14px; }
