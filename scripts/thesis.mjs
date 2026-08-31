@@ -26,13 +26,16 @@ import { computeReplacement } from '../app/js/replacement.js'
 
 globalThis.window = globalThis.window || {}
 await import('../app/data/pack.js')
-await import('../app/data/demo.js')
+await import('../app/data/league.js')
 const pack = globalThis.window.TD_PACK
-const demo = globalThis.window.TD_DEMO
+const league = globalThis.window.TD_LEAGUE
 
 const SLOT_COUNTS = { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1 }
 const SLOTS = slotsFromCounts(SLOT_COUNTS)
-const LEAGUE = { teams: 12, slots: { ...SLOT_COUNTS, BEN: 7 } }
+// Every player the league holds, so replacement level is the actual waiver wire rather
+// than a rank baseline. This is the real league, not a constructed one.
+const ROSTERED = new Set(league.rosters.flatMap((t) => t.players.map((p) => p.id)))
+const LEAGUE = { teams: league.teams, slots: { ...SLOT_COUNTS, BEN: 7 }, rostered: ROSTERED }
 const byId = new Map(pack.players.map((p) => [p.id, p]))
 
 /** Season points per game under the user's league, from the shipped projection. */
@@ -77,22 +80,46 @@ function trade(rosterA, rosterB, sendA, sendB) {
 const f = (n, d = 1) => n.toFixed(d).padStart(7)
 const rule = (t) => console.log(`\n${'='.repeat(74)}\n${t}\n${'='.repeat(74)}`)
 
-const teamA = demo.teamA.players.map((p) => byId.get(p.id)).filter(Boolean)
-const teamB = demo.teamB.players.map((p) => byId.get(p.id)).filter(Boolean)
+/**
+ * The two most opposite rosters in the league, by RB strength minus WR strength.
+ *
+ * Claim 3 needs a pair whose strengths are inverted, and picking them by measurement
+ * rather than by hand keeps the check honest: whoever those two happen to be this week is
+ * who gets used.
+ */
+const rosters = league.rosters.map((t) => ({
+  name: t.name,
+  players: t.players.map((p) => byId.get(p.id)).filter(Boolean),
+}))
+const tilt = (r) => {
+  const top = (pos) => r.players.filter((p) => p.pos === pos).map(ppg)
+    .sort((a, b) => b - a).slice(0, 3).reduce((x, y) => x + y, 0)
+  return top('RB') - top('WR')
+}
+const sortedByTilt = rosters.slice().sort((a, b) => tilt(a) - tilt(b))
+const backHeavy = sortedByTilt[sortedByTilt.length - 1]
+const passHeavy = sortedByTilt[0]
+const nameA = backHeavy.name
+const nameB = passHeavy.name
+const teamA = backHeavy.players
+const teamB = passHeavy.players
 
 rule('SETUP')
-console.log(`${demo.teamA.name}: ${teamA.length} players, raw projected ${f(sum(teamA))} pts/wk`)
-console.log(`${demo.teamB.name}: ${teamB.length} players, raw projected ${f(sum(teamB))} pts/wk`)
+console.log(`${league.name}: ${league.teams} teams, ${ROSTERED.size} players rostered`)
+console.log(`most back-heavy roster:     ${nameA}`)
+console.log(`most receiver-heavy roster: ${nameB}\n`)
+console.log(`${nameA}: ${teamA.length} players, raw projected ${f(sum(teamA))} pts/wk`)
+console.log(`${nameB}: ${teamB.length} players, raw projected ${f(sum(teamB))} pts/wk`)
 const repl = computeReplacement(pack.players, LEAGUE, ppg)
 console.log('\nreplacement level, computed from the pool (not typed in):')
 for (const [pos, v] of Object.entries(repl)) console.log(`   ${pos.padEnd(4)} ${f(v, 2)} pts/game`)
 
 // ---------------------------------------------------------------------------
 rule('1. BENCH POINTS ARE NOT WORTH FACE VALUE')
-for (const [name, roster] of [[demo.teamA.name, teamA], [demo.teamB.name, teamB]]) {
+for (const [name, roster] of [[nameA, teamA], [nameB, teamB]]) {
   const raw = sum(roster) * weeks.length
   const started = seasonStarters(roster).total
-  console.log(`${name.padEnd(14)} raw roster total ${f(raw)}   actually started ${f(started)}`
+  console.log(`${name.padEnd(30)} raw roster total ${f(raw)}   actually started ${f(started)}`
     + `   stranded on the bench ${f(raw - started)}  (${((1 - started / raw) * 100).toFixed(0)}%)`)
 }
 console.log('\nThat gap is why summing a roster tells you almost nothing. Points only count')
@@ -152,7 +179,7 @@ console.log(`the deal: ${giveRB.name} (RB, ${ppg(giveRB).toFixed(2)}) `
 console.log(`point-summing verdict: a flat ${(ppg(getWR) - ppg(giveRB)).toFixed(2)} pts/wk `
   + 'for whoever receives the receiver -- the same number for every team alive.\n')
 
-for (const [name, base] of [[demo.teamA.name, teamA], [demo.teamB.name, teamB]]) {
+for (const [name, base] of [[nameA, teamA], [nameB, teamB]]) {
   // Give each roster the same back, then trade him for the same receiver.
   const withRB = [...base.filter((p) => p.id !== giveRB.id && p.id !== getWR.id), giveRB]
   const after = [...withRB.filter((p) => p.id !== giveRB.id), getWR]
@@ -160,7 +187,7 @@ for (const [name, base] of [[demo.teamA.name, teamA], [demo.teamB.name, teamB]])
   const a = seasonStarters(after).total
   const shape = { RB: 0, WR: 0 }
   for (const p of withRB) if (shape[p.pos] !== undefined) shape[p.pos] += ppg(p)
-  console.log(`${name.padEnd(14)} (RB corps ${f(shape.RB)}, WR corps ${f(shape.WR)})`
+  console.log(`${name.padEnd(30)} (RB corps ${f(shape.RB)}, WR corps ${f(shape.WR)})`
     + `   starters ${f(b)} -> ${f(a)}   delta ${f(a - b)}`)
 }
 console.log('\nSame players, same projections, two different answers. A tool that reports one')
@@ -196,9 +223,9 @@ if (best) {
   console.log(`\n  ${best.give.name} (${best.give.pos}) for ${best.get.name} (${best.get.pos})`)
   console.log(`  point-summing says a flat ${(ppg(best.get) - ppg(best.give)).toFixed(2)} pts/wk`
     + ' for everyone, but:')
-  console.log(`    ${demo.teamA.name.padEnd(14)} ${f(best.deltas[0])} over the season`
+  console.log(`    ${nameA.padEnd(30)} ${f(best.deltas[0])} over the season`
     + `  ${best.deltas[0] > 0 ? '(ACCEPT)' : '(DECLINE)'}`)
-  console.log(`    ${demo.teamB.name.padEnd(14)} ${f(best.deltas[1])} over the season`
+  console.log(`    ${nameB.padEnd(30)} ${f(best.deltas[1])} over the season`
     + `  ${best.deltas[1] > 0 ? '(ACCEPT)' : '(DECLINE)'}`)
   console.log('\n  One roster should take this deal and the other should refuse it. That is the')
   console.log('  trade that actually gets accepted, and a summing tool cannot find it.')
@@ -213,7 +240,7 @@ const s = seasonStarters(teamA)
 const reg = s.perWeek.filter((_, i) => !playoff.includes(weeks[i]))
 const po = s.perWeek.filter((_, i) => playoff.includes(weeks[i]))
 const mean = (xs) => xs.reduce((x, y) => x + y, 0) / xs.length
-console.log(`${demo.teamA.name}: regular weeks average ${f(mean(reg))}, `
+console.log(`${nameA}: regular weeks average ${f(mean(reg))}, `
   + `playoff weeks (${playoff.join(', ')}) average ${f(mean(po))}`)
 const worst = s.perWeek.indexOf(Math.min(...s.perWeek))
 console.log(`worst week is ${weeks[worst]} at ${f(s.perWeek[worst])} -- `

@@ -91,7 +91,7 @@ export function marketValues(pack, cfg = DEFAULT_SCORING, league = DEFAULT_LEAGU
 
 /** Replacement points per position, from the pool and the league's starting slots. */
 function replacementByPos(pack, cfg, league) {
-  const teams = num(league?.teams, 12)
+  const teams = num(league?.teams, DEFAULT_LEAGUE.teams)
   const slots = league?.slots || DEFAULT_LEAGUE.slots
   const out = {}
   const byPos = new Map()

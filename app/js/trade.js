@@ -5,8 +5,8 @@
  * and every one of them is a first-class output here rather than a footnote:
  *
  *   1. Bench points are worth almost nothing. What matters is points above the player you
- *      would otherwise start. Measured on the real 2026 projection set, 33-35% of a
- *      roster's raw projected total never reaches a starting lineup at all. So the ledger
+ *      would otherwise start. Measured on the eight real rosters in this league, 37-43% of
+ *      a roster's raw projected total never reaches a starting lineup at all. So the ledger
  *      is built from STARTER points and from points above replacement, and bench depth is
  *      priced as insurance -- how often it actually enters the lineup times what it is
  *      worth when it does -- not at face value.
@@ -14,10 +14,10 @@
  *   2. The same trade is not worth the same to both teams. A roster with three good backs
  *      and one receiver should price a deal differently from its mirror image. Both sides
  *      are therefore evaluated independently against their own shape, and the verdict
- *      carries two numbers, never one. On the shipped data this is not a subtle effect:
- *      Omarion Hampton for DeVonta Smith is worth +48 points over the season to a
- *      back-heavy roster and -40 to a receiver-heavy one, while point-summing calls it a
- *      flat -1.18 a week for everybody.
+ *      carries two numbers, never one. On the shipped rosters this is not a subtle effect:
+ *      Kyren Williams for Tee Higgins is worth +29 points over the season to the league's
+ *      most back-heavy roster and -8 to its most receiver-heavy one, while point-summing
+ *      calls it a flat +1.79 a week for everybody.
  *
  *   3. Weeks are not equal. Every remaining week is walked separately with the lineup
  *      re-solved and bye-week players removed, so bye collisions fall out of the math
@@ -36,7 +36,8 @@ import { simSeason, makeRng, DEFAULT_SEED } from './sim.js'
 /* ------------------------------------------------------------------ defaults */
 
 export const DEFAULT_LEAGUE = Object.freeze({
-  teams: 12,
+  /** Eight teams, nine starters, seven on the bench -- see `pipeline/league.json`. */
+  teams: 8,
   slots: Object.freeze({ QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1, BEN: 7 }),
   /** Fantasy postseason. Weighted because these weeks decide seasons. */
   playoffWeeks: Object.freeze([15, 16, 17]),
@@ -58,6 +59,26 @@ const BENCH_ENTRY_RATE = [0.34, 0.16, 0.08, 0.04, 0.02]
 /* ------------------------------------------------------------------ helpers */
 
 const isObj = (x) => x !== null && typeof x === 'object'
+
+/**
+ * Ids out of whatever a caller passed as `rostered` -- a Set, an array, a Map, an object.
+ * replacement.js accepts all of those, so this must not be pickier than it is.
+ */
+function asIdSet(rostered) {
+  const out = []
+  if (rostered === null || rostered === undefined) return out
+  if (typeof rostered === 'string') return [rostered]
+  if (rostered instanceof Map) { for (const k of rostered.keys()) out.push(String(k)); return out }
+  if (typeof rostered[Symbol.iterator] === 'function') {
+    for (const v of rostered) {
+      if (v === null || v === undefined) continue
+      out.push(String(isObj(v) && v.id !== undefined ? v.id : v))
+    }
+    return out
+  }
+  if (isObj(rostered)) for (const k of Object.keys(rostered)) if (rostered[k]) out.push(String(k))
+  return out
+}
 const num = (x, d = 0) => (Number.isFinite(x) ? x : d)
 const uniqById = (list) => {
   const seen = new Set()
@@ -317,7 +338,14 @@ export function evaluateTrade(input) {
   // instead" mean anything.
   const pool = Array.isArray(opts.pool) ? opts.pool
     : (Array.isArray(pack?.players) ? pack.players : [...rosterA, ...rosterB])
+  // Who owns whom. The two rosters in the trade are always in it; when the caller knows
+  // the rest of the league it goes in too, because the waiver wire is a property of the
+  // league and not of the two teams talking. Building this from the two rosters alone put
+  // coverage at a quarter of the league, which fails replacement.js's own guard and
+  // silently drops the verdict back to the rank baseline -- so the trade tab and the
+  // league tab quoted two different replacement levels for the same league.
   const rostered = new Set([...rosterA, ...rosterB].map((p) => p.id))
+  for (const id of asIdSet(league.rostered)) rostered.add(id)
   const replacement = computeReplacement(pool, { ...league, rostered }, (p) => playerPPG(p, cfg))
 
   const outA = new Set(sendA.map((p) => p.id))

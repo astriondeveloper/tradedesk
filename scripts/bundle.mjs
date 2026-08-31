@@ -127,8 +127,8 @@ function wrapModule(abs, src) {
 function build() {
   const html = read(join(APP, 'index.html'))
   const pack = read(join(APP, 'data', 'pack.js'))
-  const demoPath = join(APP, 'data', 'demo.js')
-  const demo = existsSync(demoPath) ? read(demoPath) : ''
+  const leaguePath = join(APP, 'data', 'league.js')
+  const league = existsSync(leaguePath) ? read(leaguePath) : ''
 
   const modules = collect(join(APP, 'js', 'main.js'))
   const code = modules
@@ -144,14 +144,14 @@ function build() {
       return `<style>\n/* ==== css/${file} ==== */\n${read(join(APP, 'css', file))}\n</style>`
     })
     .replace(/<script src="data\/pack\.js"><\/script>/, '<!-- data pack inlined below -->')
-    .replace(/<script src="data\/demo\.js"><\/script>/, '')
+    .replace(/<script src="data\/league\.js"><\/script>/, '')
     .replace(/<script type="module" src="js\/main\.js"><\/script>/,
       // TD_STANDALONE marks this as the frozen single-file build rather than the hosted
       // app. The app cannot tell the two apart any other way -- protocol will not do it,
       // because this file gets served over https too (published as an artifact, dropped
       // on a share) and would then claim a nightly rebuild it does not get. What is true
       // of this file everywhere is that its data is fixed at the moment it was built.
-      `<script>\nwindow.TD_STANDALONE = true;\n${pack}\n${demo}\n</script>\n`
+      `<script>\nwindow.TD_STANDALONE = true;\n${pack}\n${league}\n</script>\n`
       + `<script>\n"use strict";\n(function(){\n${code}\n})();\n</script>`)
 
   mkdirSync(dirname(OUT), { recursive: true })

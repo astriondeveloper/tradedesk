@@ -19,7 +19,20 @@ import { tradeImpact, openings, positionalShape, leagueContext, counterplay, COR
 import { bullet, gauge, funnel, exchange, niceBounds } from './instruments.js'
 
 const PACK = window.TD_PACK
-const DEMO = window.TD_DEMO || null
+/**
+ * The real league, compiled by `pipeline/build_league.py` from `pipeline/league.json`.
+ * Every roster in it resolved against this pack, so an id here always exists.
+ */
+const LEAGUE = window.TD_LEAGUE || null
+const leagueTeam = (name) => LEAGUE?.rosters.find((t) => t.name === name) || null
+/** Who a team plays in the week the league was transcribed. */
+function leagueOpponent(name) {
+  for (const [a, b] of LEAGUE?.matchups || []) {
+    if (a === name) return b
+    if (b === name) return a
+  }
+  return null
+}
 const $ = (id) => document.getElementById(id)
 const el = (tag, cls, html) => {
   const n = document.createElement(tag)
@@ -60,56 +73,94 @@ const state = {
   move: {},         // id -> true when included in the trade
   cfg: cloneScoring(DEFAULT_SCORING),
   league: {
-    teams: 12,
-    slots: { ...DEFAULT_LEAGUE.slots },
-    playoffWeeks: [...DEFAULT_LEAGUE.playoffWeeks],
+    teams: LEAGUE?.teams ?? DEFAULT_LEAGUE.teams,
+    slots: { ...DEFAULT_LEAGUE.slots, ...(LEAGUE?.slots || {}) },
+    playoffWeeks: [...(LEAGUE?.playoffWeeks || DEFAULT_LEAGUE.playoffWeeks)],
     playoffWeight: DEFAULT_LEAGUE.playoffWeight,
   },
-  draft: { taken: [], mine: [], pick: 1, next: 22, pos: '' },
+  draft: { taken: [], mine: [], pick: 1, next: snakeGap(), pos: '' },
   // Manual availability overrides. This is the answer to breaking news the pack cannot
   // know about: mark a player and every projection re-runs, with no network involved.
   status: {},
   espn: null,          // the imported league: teams, rosters, settings
-  // Which imported team sits in each panel, and which one is the reader's. -1 means the
+  // Which league team sits in each panel, and which one is the reader's. -1 means the
   // panel holds a hand-built roster rather than a league team. `myTeam` is what makes a
   // deal between two rivals legible: without it there is no "you" to measure against.
+  // These index leagueTeams(), which is the shipped league until an ESPN import replaces it.
   pickA: -1,
   pickB: -1,
   myTeam: -1,
-  finder: { untouchable: [], targets: [], maxGive: 2, maxGet: 2, opponent: 0, result: null },
+  // `opponent` is the selected option's LABEL, never its index: which teams are listed
+  // depends on side A, so a position in that list is not a stable identifier.
+  finder: { untouchable: [], targets: [], maxGive: 2, maxGet: 2, opponent: '', result: null },
   players: { q: '', pos: '', window: 'season', limit: 50, sort: 'pts', dir: -1, open: null },
 }
+
+/**
+ * Which league the saved session belongs to.
+ *
+ * A saved session holds rosters and a league size. When the shipped league is re-transcribed
+ * -- a new week, a trade, a different league entirely -- the saved copy is a snapshot of a
+ * league that no longer exists, and silently restoring it would put yesterday's rosters in
+ * front of you with today's data pack. So the stamp goes in with the session, and a session
+ * stamped for a different league gives its rosters back.
+ */
+/**
+ * Picks between your turns in a snake draft: everyone else picks twice. Hardcoding this
+ * at 22 was the twelve-team answer, and in an eight-team league it overstates the wait by
+ * eight picks -- which is exactly the input VONA is most sensitive to.
+ */
+function snakeGap() {
+  return Math.max(1, ((LEAGUE?.teams ?? DEFAULT_LEAGUE.teams) - 1) * 2)
+}
+
+const leagueStamp = () => (LEAGUE
+  ? `${LEAGUE.name}|${LEAGUE.season}|w${LEAGUE.asOfWeek}|${LEAGUE.teams}`
+  : 'none')
 
 function save() {
   try {
     localStorage.setItem(STORE, JSON.stringify({
+      stamp: leagueStamp(),
       nameA: state.nameA, nameB: state.nameB, A: state.A, B: state.B,
       cfg: state.cfg, league: state.league, draft: state.draft,
       status: state.status, espn: state.espn,
       pickA: state.pickA, pickB: state.pickB, myTeam: state.myTeam,
+      finder: { opponent: state.finder.opponent },
     }))
   } catch (e) { /* private mode, quota, blocked storage: the session still works */ }
 }
+/** @returns true when the saved session belongs to the league that is loaded now. */
 function load() {
   try {
     const raw = localStorage.getItem(STORE)
-    if (!raw) return
+    if (!raw) return false
     const s = JSON.parse(raw)
+
+    // Scoring, injury statuses and the draft board are about players, not about which
+    // league is loaded, so they survive a re-transcription. Everything else does not.
+    if (s.cfg) state.cfg = s.cfg
+    if (s.draft) state.draft = { ...state.draft, ...s.draft }
+    if (s.status) state.status = s.status
+
+    // Stale session: init() reloads the shipped league and re-seeds its designations.
+    if (s.stamp !== leagueStamp()) return false
+
     Object.assign(state, {
       nameA: s.nameA ?? state.nameA,
       nameB: s.nameB ?? state.nameB,
       A: Array.isArray(s.A) ? s.A.filter((id) => byId.has(id)) : [],
       B: Array.isArray(s.B) ? s.B.filter((id) => byId.has(id)) : [],
     })
-    if (s.cfg) state.cfg = s.cfg
     if (s.league) state.league = { ...state.league, ...s.league }
-    if (s.draft) state.draft = { ...state.draft, ...s.draft }
-    if (s.status) state.status = s.status
     if (s.espn) state.espn = s.espn
     for (const k of ['pickA', 'pickB', 'myTeam']) {
       if (Number.isInteger(s[k])) state[k] = s[k]
     }
+    if (s.finder?.opponent) state.finder.opponent = s.finder.opponent
+    return true
   } catch (e) { /* corrupt or unavailable storage: fall back to defaults */ }
+  return false
 }
 
 /**
@@ -179,12 +230,31 @@ function staleBanner() {
 
 /* ------------------------------------------------------------------ rosters */
 
+/**
+ * Which league roster, if any, a side currently holds.
+ *
+ * Derived from the ids rather than remembered, so the picker cannot drift out of step with
+ * the roster: add or drop anybody and it falls back to "custom" on the next render by
+ * itself.
+ */
+function matchedLeagueTeam(side) {
+  if (!LEAGUE) return ''
+  const ids = state[side]
+  for (const t of LEAGUE.rosters) {
+    if (t.players.length !== ids.length) continue
+    const have = new Set(ids)
+    if (t.players.every((p) => have.has(p.id))) return t.name
+  }
+  return ''
+}
+
 function renderRoster(side) {
   const box = $(`rows${side}`)
   const list = roster(side)
   box.innerHTML = ''
   if (!list.length) {
-    box.appendChild(el('p', 'empty', 'No players yet. Search above, or load the demo league.'))
+    box.appendChild(el('p', 'empty',
+      'No players yet. Pick a league team above, or search for players by name.'))
     return
   }
   const order = ['QB', 'RB', 'WR', 'TE', 'K', 'DST']
@@ -233,13 +303,44 @@ function renderRoster(side) {
     })
 }
 
+/**
+ * Every player the league actually holds.
+ *
+ * With all eight rosters known, replacement level stops being an estimate: it is literally
+ * the best player nobody owns. replacement.js prefers that method and falls back to the
+ * rank baseline on its own if coverage is too thin, so handing it the set is safe even
+ * after the rosters have been edited about.
+ */
+function rosteredIds() {
+  const out = new Set()
+  const source = state.espn?.teams?.length ? state.espn.teams : (LEAGUE?.rosters || [])
+  for (const t of source) for (const p of t.players) out.add(p.id)
+  // Whatever is loaded by hand is owned too, even if it is not in the shipped league.
+  for (const id of state.A) out.add(id)
+  for (const id of state.B) out.add(id)
+  return out.size ? out : null
+}
+
+/**
+ * The league as the engines should see it: the settings, plus who owns whom.
+ *
+ * Kept separate from `state.league` because that is what gets persisted, and a Set does
+ * not survive a round trip through JSON.
+ */
+function engineLeague() {
+  const rostered = rosteredIds()
+  return rostered ? { ...state.league, rostered } : state.league
+}
+
 let replCache = null
 let replKey = ''
 function currentReplacement() {
-  const key = JSON.stringify([state.cfg, state.league.slots, state.league.teams])
+  const L = engineLeague()
+  const key = JSON.stringify([state.cfg, state.league.slots, state.league.teams,
+    L.rostered ? [...L.rostered].sort() : null])
   if (key !== replKey) {
     replKey = key
-    const d = replacementDetail(PACK.players, state.league, (p) => ppg(p))
+    const d = replacementDetail(PACK.players, L, (p) => ppg(p))
     replCache = Object.fromEntries(Object.entries(d).map(([k, v]) => [k, v.pts]))
     replCache._detail = d
   }
@@ -310,17 +411,31 @@ function wireSearch(side) {
 /* ------------------------------------------------- watching other teams trade */
 
 /** The imported league as player objects from the pack, with status overrides applied. */
+/**
+ * Every team in the league, whichever league that is.
+ *
+ * An ESPN import wins when there is one, because it is fresher than anything shipped.
+ * Otherwise this is the transcribed league, which means the scout bar and the panel
+ * pickers work on first open rather than waiting for somebody to paste a payload -- the
+ * rosters are already here.
+ */
 function leagueTeams() {
-  const teams = state.espn?.teams
+  const teams = state.espn?.teams?.length >= 2 ? state.espn.teams : LEAGUE?.rosters
   if (!Array.isArray(teams) || teams.length < 2) return null
   return teams.map((t, i) => ({
     index: i,
     name: t.name || `Team ${i + 1}`,
+    owner: t.owner || '',
     mine: i === state.myTeam,
     players: (t.players || [])
       .map((p) => withStatus(byId.get(p.id)))
       .filter(Boolean),
   }))
+}
+
+/** Where a league team sits in leagueTeams(), by name. -1 when it is not there. */
+function teamIndex(name) {
+  return (leagueTeams() || []).findIndex((t) => t.name === name)
 }
 
 function renderScoutBar() {
@@ -339,7 +454,7 @@ function renderScoutBar() {
     teams.forEach((t) => {
       const o = el('option')
       o.value = String(t.index)
-      o.textContent = `${t.name} (${t.players.length})`
+      o.textContent = t.owner ? `${t.name} — ${t.owner}` : `${t.name} (${t.players.length})`
       sel.appendChild(o)
     })
     sel.value = String(state[key])
@@ -526,7 +641,7 @@ function renderTrade() {
 
   const v = evaluateTrade({
     rosterA: A, rosterB: B, sendA, sendB, pack: PACK, cfg: state.cfg,
-    league: state.league, nameA: state.nameA, nameB: state.nameB,
+    league: engineLeague(), nameA: state.nameA, nameB: state.nameB,
     opts: { sim: true, draws: 600 },
   })
 
@@ -616,12 +731,30 @@ function renderTrade() {
   }
   html += '</div>'
 
+  // Statuses come from two places and the difference matters: the league file carries the
+  // designations ESPN showed when the rosters were transcribed, and anything else on this
+  // list you set yourself. Calling all of them "yours" would misreport where they came
+  // from; calling all of them data would hide that you can change any of them.
   const overridden = Object.keys(state.status).filter((id) => state.status[id] !== 'H')
   if (overridden.length) {
+    const fromLeague = new Map()
+    for (const t of LEAGUE?.rosters || []) for (const p of t.players) {
+      if (p.status) fromLeague.set(p.id, p.status)
+    }
+    const label = (id) => `${esc(byId.get(id)?.name || id)} (${STATUS_LABEL[state.status[id]]})`
+    const shipped = overridden.filter((id) => fromLeague.get(id) === state.status[id])
+    const yours = overridden.filter((id) => fromLeague.get(id) !== state.status[id])
     html += `<p class="note">${overridden.length} player${overridden.length === 1 ? '' : 's'} `
-      + `carrying a manual status: ${overridden.map((id) => esc(byId.get(id)?.name || id)
-        + ' (' + STATUS_LABEL[state.status[id]] + ')').join(', ')}. `
-      + 'Those availabilities are yours, not the data\'s, and they flow through every number above.</p>'
+      + 'carrying an availability that is not the pack\'s default, and every one of them flows '
+      + 'through the numbers above. '
+      + (shipped.length
+        ? `<b>${shipped.length} from ESPN</b>, as designated when these rosters were read for `
+          + `week ${LEAGUE?.asOfWeek}: ${shipped.map(label).join(', ')}. `
+        : '')
+      + (yours.length
+        ? `<b>${yours.length} set by you</b>: ${yours.map(label).join(', ')}. `
+        : '')
+      + 'Change any of them on the player\'s row.</p>'
   }
 
   if (v.sim?.A?.assumptions?.opponent) {
@@ -646,7 +779,7 @@ function renderTrade() {
     setTimeout(() => {
       const fair = suggestFair({
         rosterA: A, rosterB: B, sendA, sendB, pack: PACK, cfg: state.cfg,
-        league: state.league, opts: { sim: false },
+        league: engineLeague(), opts: { sim: false },
       })
       const target = $('fairBox')
       if (!target) return
@@ -898,6 +1031,10 @@ function playerDetail(p) {
 
 function renderDraft() {
   const d = state.draft
+  // Keep the controls showing what the board is actually computed from, so the snake gap
+  // on screen is the league's rather than whatever the markup was authored with.
+  if ($('dPick').value !== String(d.pick)) $('dPick').value = d.pick
+  if ($('dNext').value !== String(d.next)) $('dNext').value = d.next
   const taken = new Set(d.taken)
   const available = PACK.players.filter((p) => !taken.has(p.id))
   const mine = d.mine.map((id) => byId.get(id)).filter(Boolean)
@@ -978,8 +1115,62 @@ function numField(label, value, onInput, step = 'any') {
   return l
 }
 
+/**
+ * What league the app is actually configured for.
+ *
+ * Worth showing plainly: every replacement level, every verdict and every proposal is
+ * computed against this, and a tool that quietly priced a 12-team league while you played
+ * in an 8-team one would be wrong in a way you could not see.
+ */
+function renderLeagueIdentity() {
+  const panel = $('leaguePanel')
+  if (!LEAGUE) { panel.hidden = true; return }
+  panel.hidden = false
+  const starters = Object.entries(LEAGUE.slots)
+    .filter(([k]) => k !== 'BEN')
+    .map(([k, n]) => (n > 1 ? `${n}×${k}` : k)).join(' · ')
+  $('leagueStamp').textContent = `as of week ${LEAGUE.asOfWeek}, ${LEAGUE.season}`
+
+  const mismatch = []
+  if (state.league.teams !== LEAGUE.teams) {
+    mismatch.push(`Teams is set to ${state.league.teams} below, but the league has `
+      + `${LEAGUE.teams}. Replacement level is being computed for the wrong league size.`)
+  }
+  const wanted = LEAGUE.playoffWeeks.join(',')
+  if (state.league.playoffWeeks.join(',') !== wanted) {
+    mismatch.push(`Playoff weeks are set to ${state.league.playoffWeeks.join('/')} below, `
+      + `but the league plays ${LEAGUE.playoffWeeks.join('/')}.`)
+  }
+
+  $('leagueBox').innerHTML =
+    `<p class="note" style="margin-top:0"><b>${esc(LEAGUE.teams)} teams</b> &nbsp;·&nbsp; `
+    + `starting ${esc(starters)}, ${LEAGUE.slots.BEN} on the bench &nbsp;·&nbsp; `
+    + `playoff weeks ${LEAGUE.playoffWeeks.join('/')} &nbsp;·&nbsp; `
+    + `you are <b>${esc(LEAGUE.myTeam)}</b>. Rosters were read off the ESPN matchup pages `
+    + `for week ${LEAGUE.asOfWeek} and every player resolved against this pack, so nothing `
+    + 'here is a guess about who is on whose roster. Anything after that date -- waivers, '
+    + 'trades, an injury -- has to be edited on the Trade tab or re-transcribed into '
+    + '<code>pipeline/league.json</code>.</p>'
+    + (mismatch.length
+      ? `<div class="flags">${mismatch.map((m) => `<div class="flag">${esc(m)}</div>`).join('')}</div>`
+      : '')
+    + '<div class="tablewrap" style="margin-top:12px"><table class="data"><thead><tr>'
+    + '<th>Team</th><th>Manager</th><th class="r">Players</th><th>Week '
+    + `${LEAGUE.asOfWeek} opponent</th></tr></thead><tbody>`
+    + LEAGUE.rosters.map((t) => {
+      const me = t.name === LEAGUE.myTeam
+      return `<tr><td>${esc(t.name)}${me ? ' <span class="dim">(you)</span>' : ''}</td>`
+        + `<td class="dim">${esc(t.owner)}</td>`
+        + `<td class="n r">${t.players.length}</td>`
+        + `<td class="dim">${esc(leagueOpponent(t.name) || '—')}</td></tr>`
+    }).join('')
+    + '</tbody></table></div>'
+}
+
 function renderLeague() {
   const c = state.cfg
+
+  renderLeagueIdentity()
 
   const sel = $('preset')
   if (!sel.options.length) {
@@ -1065,8 +1256,14 @@ function renderLeague() {
         + `<td class="dim" style="white-space:normal">${esc(d.note || '')}</td></tr>`
     }).join('')
     + '</tbody></table></div>'
-    + '<p class="note">This is the player you would actually start instead, derived from your '
-    + 'slots and the pool. It is what turns raw points into value, and it is why a 12-point '
+    + '<p class="note">This is the player you would actually start instead. '
+    + (['QB', 'RB', 'WR', 'TE', 'K', 'DST'].every((pos) => detail[pos]?.method === 'freeAgent')
+      ? 'Every roster in the league is loaded, so it is not an estimate from slot math: it is '
+        + 'literally the best player nobody owns. '
+      : 'Where the rosters loaded do not cover the league, it falls back to a rank baseline '
+        + 'from league size and starting slots -- the "how it was derived" column says which '
+        + 'you are getting at each position. ')
+    + 'That is what turns raw points into value, and it is why a 12-point '
     + 'quarterback is worse than nothing while a 12-point running back is a starter.</p>'
 }
 
@@ -1079,15 +1276,16 @@ function renderMethod() {
   $('methodBody').innerHTML = `
     <p class="eyebrow"><b>What this does that point-summing does not</b></p>
     <div class="flags">
-      <div class="flag good"><b>Bench points are worth almost nothing.</b> Between a third and
-        35% of a roster's raw projected total never reaches a starting lineup. Everything here
-        is measured in starter points and in points above the player you would otherwise
-        start, and bench depth is priced as insurance rather than at face value.</div>
+      <div class="flag good"><b>Bench points are worth almost nothing.</b> Across the eight real
+        rosters in this league, between 37% and 43% of a roster's raw projected total never
+        reaches a starting lineup. Everything here is measured in starter points and in points
+        above the player you would otherwise start, and bench depth is priced as insurance
+        rather than at face value.</div>
       <div class="flag good"><b>The same trade is not worth the same to both teams.</b> Both
         rosters are evaluated against their own shape, so a deal can be a gain for one and a
-        loss for the other. On this data, Omarion Hampton for DeVonta Smith is worth +48 points
-        over a season to a back-heavy roster and ‒40 to a receiver-heavy one, while
-        point-summing calls it a flat ‒1.2 a week for everyone.</div>
+        loss for the other. On this data, Kyren Williams for Tee Higgins is worth +29 points
+        over a season to the most back-heavy roster in the league and ‒8 to the most
+        receiver-heavy one, while point-summing calls it a flat +1.8 a week for everyone.</div>
       <div class="flag good"><b>Weeks are not equal.</b> Every remaining week is walked with the
         lineup re-solved and bye players removed, so bye collisions and the playoff schedule
         show up in the number instead of being ignored.</div>
@@ -1180,20 +1378,63 @@ function show(view) {
   renderAll()
 }
 
-function loadDemo() {
-  if (!DEMO) return
-  state.A = DEMO.teamA.players.map((p) => p.id).filter((id) => byId.has(id))
-  state.B = DEMO.teamB.players.map((p) => p.id).filter((id) => byId.has(id))
-  state.nameA = DEMO.teamA.name
-  state.nameB = DEMO.teamB.name
-  $('nameA').value = state.nameA
-  $('nameB').value = state.nameB
+/**
+ * Put one league roster on a side.
+ *
+ * The league file carries the injury designations that were on the ESPN page when it was
+ * transcribed, and those seed the status overrides exactly the way an ESPN import does:
+ * fresher than anything the pack knows, and yours to change afterwards.
+ */
+function loadTeam(side, name) {
+  const t = leagueTeam(name)
+  if (!t) return false
+  state[side] = t.players.map((p) => p.id).filter((id) => byId.has(id))
+  state[`name${side}`] = t.name
+  $(`name${side}`).value = t.name
+  for (const id of state[side]) if (state.move[id]) delete state.move[id]
+  return true
+}
+
+/**
+ * Apply the league file's injury designations across every roster in it, once.
+ *
+ * These have to land for the whole league rather than for whichever teams happen to have
+ * been opened: the Propose tab prices a rival's roster straight out of the league file,
+ * so a designation that only took effect after you had visited that team would make the
+ * same search return different numbers depending on where you had clicked. Seeding is
+ * tied to the league stamp, so a session that already carries your own edits keeps them.
+ */
+function seedLeagueStatus() {
+  for (const t of LEAGUE?.rosters || []) {
+    for (const p of t.players) {
+      if (p.status === 'OUT' || p.status === 'IR' || p.status === 'Q') state.status[p.id] = p.status
+    }
+  }
+}
+
+/** Open on the real league: your roster against whoever you play this week. */
+function loadLeagueRosters() {
+  if (!LEAGUE) return
+  const mine = LEAGUE.myTeam
+  const theirs = leagueOpponent(mine)
+    || LEAGUE.rosters.find((t) => t.name !== mine)?.name
+  loadTeam('A', mine)
+  if (theirs) loadTeam('B', theirs)
+  // Point the scout bar at the same two teams, and at you, so the league-impact board
+  // reads the deal from your seat instead of asking who you are first.
+  state.myTeam = teamIndex(mine)
+  state.pickA = state.myTeam
+  state.pickB = theirs ? teamIndex(theirs) : -1
   state.move = {}
   renderTrade()
 }
 
 function init() {
-  load()
+  const resumed = load()
+  // A session that predates this league never had its designations applied, and a fresh
+  // one has none at all. Either way they seed now, for every roster rather than the two
+  // that happen to be on screen.
+  if (!resumed) seedLeagueStatus()
   $('nameA').value = state.nameA
   $('nameB').value = state.nameB
 
@@ -1239,9 +1480,15 @@ function init() {
 
   wireEspn()
   $('fRun').onclick = runFinder
-  $('fOpponent').addEventListener('change', () => { state.finder.targets = []; renderPropose() })
+  $('fOpponent').addEventListener('change', () => {
+    state.finder.opponent = $('fOpponent').value
+    state.finder.targets = []
+    state.finder.result = null   // the old results were searched against someone else
+    renderPropose()
+  })
   for (const id of ['fMaxGive', 'fMaxGet']) $(id).addEventListener('change', () => {})
 
+  $('loadLeague').onclick = loadLeagueRosters
   for (const [id, key] of [['pickA', 'pickA'], ['pickB', 'pickB'], ['pickMe', 'myTeam']]) {
     $(id).addEventListener('change', (e) => {
       state[key] = parseInt(e.target.value, 10)
@@ -1270,15 +1517,22 @@ function init() {
     save()
   }
 
-  $('loadDemo').onclick = loadDemo
   $('clearTrade').onclick = () => { state.move = {}; renderTrade() }
   $('wipe').onclick = () => {
     state.A = []; state.B = []; state.move = {}
-    state.draft = { taken: [], mine: [], pick: 1, next: 22, pos: '' }
+    state.cfg = cloneScoring(DEFAULT_SCORING)
+    state.league = {
+      teams: LEAGUE?.teams ?? DEFAULT_LEAGUE.teams,
+      slots: { ...DEFAULT_LEAGUE.slots, ...(LEAGUE?.slots || {}) },
+      playoffWeeks: [...(LEAGUE?.playoffWeeks || DEFAULT_LEAGUE.playoffWeeks)],
+      playoffWeight: DEFAULT_LEAGUE.playoffWeight,
+    }
+    replKey = ''
+    state.draft = { taken: [], mine: [], pick: 1, next: snakeGap(), pos: '' }
     state.status = {}
     state.espn = null
     state.pickA = -1; state.pickB = -1; state.myTeam = -1
-    state.finder = { untouchable: [], targets: [], maxGive: 2, maxGet: 2, opponent: 0, result: null }
+    state.finder = { untouchable: [], targets: [], maxGive: 2, maxGet: 2, opponent: '', result: null }
     try { localStorage.removeItem(STORE) } catch (e) { /* nothing to clear */ }
     renderAll()
   }
@@ -1297,14 +1551,13 @@ function init() {
     })
   }
   $('dReset').onclick = () => {
-    state.draft = { taken: [], mine: [], pick: 1, next: 22, pos: '' }
-    $('dPick').value = 1
+    state.draft = { taken: [], mine: [], pick: 1, next: snakeGap(), pos: '' }
     renderDraft()
     save()
   }
 
   $('applyLeague').onclick = () => {
-    state.league.teams = parseInt($('lTeams').value, 10) || 12
+    state.league.teams = parseInt($('lTeams').value, 10) || (LEAGUE?.teams ?? DEFAULT_LEAGUE.teams)
     state.league.playoffWeeks = $('lPlayoff').value.split(',')
       .map((x) => parseInt(x.trim(), 10)).filter(Number.isFinite)
     state.league.playoffWeight = parseFloat($('lPWeight').value) || 1
@@ -1315,8 +1568,9 @@ function init() {
   $('resetLeague').onclick = () => {
     state.cfg = cloneScoring(DEFAULT_SCORING)
     state.league = {
-      teams: 12, slots: { ...DEFAULT_LEAGUE.slots },
-      playoffWeeks: [...DEFAULT_LEAGUE.playoffWeeks],
+      teams: LEAGUE?.teams ?? DEFAULT_LEAGUE.teams,
+      slots: { ...DEFAULT_LEAGUE.slots, ...(LEAGUE?.slots || {}) },
+      playoffWeeks: [...(LEAGUE?.playoffWeeks || DEFAULT_LEAGUE.playoffWeeks)],
       playoffWeight: DEFAULT_LEAGUE.playoffWeight,
     }
     replKey = ''
@@ -1339,8 +1593,9 @@ function init() {
   // is a server to fetch it from; from a file:// copy the link would point at nothing.
   if (HOSTED) $('offline').hidden = false
 
-  // Open on the demo if there is nothing saved, so the first screen shows the tool working.
-  if (!state.A.length && !state.B.length && DEMO) loadDemo()
+  // Open on the real league if there is nothing saved: your roster against this week's
+  // opponent, so the first screen is your actual decision rather than a worked example.
+  if (!state.A.length && !state.B.length && LEAGUE) loadLeagueRosters()
   show('trade')
 }
 
@@ -1476,26 +1731,45 @@ function wireEspn() {
 function renderPropose() {
   const mine = roster('A')
   const sel = $('fOpponent')
-  const prev = sel.value
   sel.innerHTML = ''
 
-  // Every other team from the imported league, plus whatever is in the manual "their team".
+  // Everyone you could actually trade with: the other seven teams in the league, then
+  // anything an ESPN import brought in, then whatever is sitting in "their team".
   const options = []
+  const mineName = matchedLeagueTeam('A')
+  for (const t of LEAGUE?.rosters || []) {
+    if (t.name === mineName) continue
+    const ids = t.players.map((p) => p.id)
+    // Without a matched side A, fall back to overlap: a roster that is mostly what you
+    // already hold is your own team, and offering yourself a trade is not useful.
+    if (!mineName && ids.filter((id) => state.A.includes(id)).length > ids.length * 0.6) continue
+    options.push({ name: t.name, label: `${t.name} (${t.owner})`, players: ids })
+  }
   if (state.espn?.teams?.length) {
     state.espn.teams.forEach((t, i) => {
       const ids = t.players.map((p) => p.id)
       const overlap = ids.filter((id) => state.A.includes(id)).length
       if (overlap > ids.length * 0.6) return  // that is my own team
-      options.push({ label: `${t.name} (ESPN)`, players: ids })
+      options.push({ name: t.name, label: `${t.name} (ESPN)`, players: ids })
     })
   }
-  if (state.B.length) options.push({ label: `${state.nameB} (manual)`, players: [...state.B] })
+  // Only when "their team" is something other than a league roster -- otherwise it would
+  // list the same eleven players twice under two labels.
+  if (state.B.length && !matchedLeagueTeam('B')) {
+    options.push({ name: state.nameB, label: `${state.nameB} (manual)`, players: [...state.B] })
+  }
 
-  options.forEach((o, i) => {
-    const opt = el('option'); opt.value = String(i); opt.textContent = o.label
+  // The option VALUE is the label, never the position in the list. Which teams appear
+  // depends on who is loaded into side A, so switching your own roster reorders this
+  // list -- and an index carried across that rebuild silently points at a different
+  // manager than the one that was selected.
+  for (const o of options) {
+    const opt = el('option'); opt.value = o.label; opt.textContent = o.label
     sel.appendChild(opt)
-  })
-  if (prev && sel.querySelector(`option[value="${prev}"]`)) sel.value = prev
+  }
+  const want = state.finder.opponent
+  sel.value = options.some((o) => o.label === want) ? want : (options[0]?.label ?? '')
+  state.finder.opponent = sel.value
   state.finder._options = options
 
   const chips = (host, list, key) => {
@@ -1517,20 +1791,43 @@ function renderPropose() {
     if (!list.length) box.innerHTML = '<span class="dim" style="font-size:12px">Nothing loaded yet.</span>'
   }
   chips('fUntouchable', mine, 'untouchable')
-  const opp = options[Number(sel.value) || 0]
+  const opp = selectedOpponent()
   const theirs = (opp?.players || []).map((id) => withStatus(byId.get(id))).filter(Boolean)
   chips('fTargets', theirs, 'targets')
 
-  if (state.finder.result) renderProposals(state.finder.result)
+  // Proposals belong to the two rosters they were searched over. Once either side has
+  // moved on, they are a stale answer to a question nobody is asking any more, and
+  // leaving them on screen under a different manager's name is how you send the wrong
+  // offer to the wrong person.
+  const r = state.finder.result
+  if (r && r.opponent === sel.value && r.forA === pairKey(state.A)) {
+    renderProposals(r)
+  } else {
+    state.finder.result = null
+    $('fResults').innerHTML = ''
+  }
+}
+
+/** An order-independent fingerprint of a roster, for spotting that it has changed. */
+const pairKey = (ids) => [...ids].sort().join(',')
+
+/** The roster currently chosen in "Trade with", resolved by label rather than position. */
+function selectedOpponent() {
+  const want = $('fOpponent').value
+  const opts = state.finder._options || []
+  return opts.find((o) => o.label === want) || null
 }
 
 function renderProposals(r) {
   const box = $('fResults')
   const n = PACK.meta.regSeasonWeeks || 18
   // The funnel, rather than a sentence. How a set this large became a list this short is
-  // the part a reader is entitled to be sceptical about, so it is drawn to scale.
+  // the part a reader is entitled to be sceptical about, so it is drawn to scale. The
+  // opponent is named because the option list reorders with side A, and a reader must
+  // never have to infer who a set of proposals was priced against.
   let html = `<div class="panel">
-    <p class="eyebrow"><b>How this list was built</b> &nbsp;·&nbsp; `
+    <p class="eyebrow"><b>How this list was built</b>`
+    + `${r.opponent ? ` &nbsp;·&nbsp; against ${esc(r.opponent)}` : ''} &nbsp;·&nbsp; `
     + `${(r.elapsedMs / 1000).toFixed(1)}s</p>
     ${funnel([
     { label: 'Packages screened', n: r.screened },
@@ -1628,9 +1925,9 @@ function renderProposals(r) {
       const list = b.getAttribute('data-kind') === 'W' ? r.proposable : r.longshots
       const c = list[Number(b.getAttribute('data-load'))]
       if (!c) return
-      const opp = state.finder._options[Number($('fOpponent').value) || 0]
+      const opp = selectedOpponent()
       state.B = [...(opp?.players || [])]
-      state.nameB = (opp?.label || 'Their team').replace(/ \((ESPN|manual)\)$/, '')
+      state.nameB = opp?.name || 'Their team'
       $('nameB').value = state.nameB
       state.move = {}
       for (const p of c.give) state.move[p.id] = true
@@ -1804,7 +2101,7 @@ function wireDragAndDrop() {
 }
 
 function runFinder() {
-  const opp = state.finder._options?.[Number($('fOpponent').value) || 0]
+  const opp = selectedOpponent()
   if (!opp) { alert('Load a league or a second roster first.'); return }
   const mine = roster('A')
   const theirs = opp.players.map((id) => withStatus(byId.get(id))).filter(Boolean)
@@ -1820,8 +2117,8 @@ function runFinder() {
     const shapes = []
     for (let g = 1; g <= maxGive; g++) for (let k = 1; k <= maxGet; k++) shapes.push([g, k])
     try {
-      state.finder.result = findTrades({
-        myRoster: mine, theirRoster: theirs, pack: PACK, cfg: state.cfg, league: state.league,
+      const result = findTrades({
+        myRoster: mine, theirRoster: theirs, pack: PACK, cfg: state.cfg, league: engineLeague(),
         opts: {
           shapes,
           untouchable: new Set(state.finder.untouchable),
@@ -1829,7 +2126,13 @@ function runFinder() {
           maxMs: 9000,
         },
       })
-      renderProposals(state.finder.result)
+      // Stamped with BOTH rosters it was searched over. The opponent alone is not enough:
+      // change your own roster and the same proposals are still an answer about players
+      // you no longer have.
+      result.opponent = opp.label
+      result.forA = pairKey(state.A)
+      state.finder.result = result
+      renderProposals(result)
     } finally {
       btn.textContent = 'Search'
       btn.disabled = false

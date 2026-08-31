@@ -609,7 +609,7 @@ test('degenerate: one-team league', () => {
 
 test('degenerate: absurd team counts fall back to the default league size', () => {
   const pool = compressionPool();
-  const base = replacementDetail(pool, league(), byPts).QB.pts;
+  const base = replacementDetail(pool, league({ teams: DEFAULT_LEAGUE.teams }), byPts).QB.pts;
   for (const teams of [0, -3, NaN, 'abc', null, undefined, Infinity]) {
     const d = replacementDetail(pool, { teams, slots: LEAGUE_SLOTS }, byPts);
     close(d.QB.pts, base, 1e-9);
@@ -623,7 +623,9 @@ test('degenerate: absurd team counts fall back to the default league size', () =
   const none = replacementDetail(pool, { teams: 12, slots: {} }, byPts);
   assert.equal(none.QB.starters, 0);
   assert.equal(none.QB.playerAtRank.id, 'QB1');
-  assert.equal(DEFAULT_LEAGUE.teams, 12);
+  // The default is the user's own league, so a partial `league` object prices the league
+  // they actually play in rather than a generic twelve-team one.
+  assert.equal(DEFAULT_LEAGUE.teams, 8);
 });
 
 test('degenerate: duplicate ids, missing positions, and non-finite projections', () => {
