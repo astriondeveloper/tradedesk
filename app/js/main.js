@@ -15,7 +15,9 @@ import { evaluateTrade, suggestFair, playerPPG, DEFAULT_LEAGUE } from './trade.j
 import { draftBoard, detectRun, positionScarcity } from './draft.js'
 import { findTrades, marketValues } from './finder.js'
 import { parseEspnLeague, espnUrl } from './espn.js'
-import { tradeImpact, openings, positionalShape, leagueContext, counterplay, CORE_POS } from './scout.js'
+import {
+  tradeImpact, openings, positionalShape, leagueContext, counterplay, powerRankings, CORE_POS,
+} from './scout.js'
 import { bullet, gauge, funnel, exchange, niceBounds } from './instruments.js'
 
 const PACK = window.TD_PACK
@@ -804,6 +806,169 @@ function renderTrade() {
   save()
 }
 
+/* ------------------------------------------------------------------ power */
+
+/**
+ * Power rankings.
+ *
+ * Every published power ranking is a sum of a roster wearing a suit. That is the exact
+ * mistake this application exists to correct, so the two rankings are shown side by side
+ * and the disagreement is the headline rather than a footnote.
+ */
+function renderPower() {
+  const teams = leagueTeams()
+  const head = $('powerHead')
+  if (!teams) {
+    head.innerHTML = '<p class="empty">Import a league, or ship one in league.json, and the '
+      + 'whole board gets ranked here.</p>'
+    $('powerBoard').innerHTML = ''
+    $('powerHeat').innerHTML = ''
+    return
+  }
+
+  const pr = powerRankings({
+    teams, pack: PACK, cfg: state.cfg, league: state.league, myIndex: state.myTeam,
+  })
+  const me = pr.rows.find((r) => r.mine)
+  $('powerAs').textContent = `${pr.rows.length} teams · playoff-weighted starter points`
+
+  /* --- headline ------------------------------------------------------------ */
+
+  let h = ''
+  if (me) {
+    h += `<div class="headline">
+      <div>
+        <span class="verdictword ${me.rank <= pr.rows.length / 2 ? 'up' : 'down'}">${esc(me.name)}</span>
+        <span class="big">${me.rank}<span class="dim" style="font-size:14px"> of ${pr.rows.length}</span></span>
+        <span class="unit">on starters</span>
+      </div>
+      <div class="read">
+        A roster-summing ranking would put you <b>${me.naiveRank}</b>.
+        ${me.rankGap === 0
+    ? 'The two agree about you, which is unusual.'
+    : me.rankGap > 0
+      ? `You are <b>${me.rankGap} place${me.rankGap === 1 ? '' : 's'} better</b> than your roster total suggests — your points are in your lineup rather than on your bench.`
+      : `You are <b>${-me.rankGap} place${me.rankGap === -1 ? '' : 's'} worse</b> than your roster total suggests. `
+        + `${(me.wasted * 100).toFixed(0)}% of your projected points never reach a starting lineup.`}
+        Strongest at <b>${esc(me.best.pos)}</b>, thinnest at <b>${esc(me.worst.pos)}</b>.
+      </div>
+    </div>`
+  }
+
+  const callouts = []
+  if (pr.mostUnderrated) {
+    callouts.push(`<div class="callout">
+      <div class="k">Most underrated by summing</div>
+      <div class="v">${esc(pr.mostUnderrated.name)}</div>
+      <div class="why">Ranks <b>${pr.mostUnderrated.naiveRank}</b> on roster total and
+        <b>${pr.mostUnderrated.rank}</b> on starters. Only
+        <b>${(pr.mostUnderrated.wasted * 100).toFixed(0)}%</b> of their points sit on the
+        bench — the least wasteful shape in the league. They are better than they look, and
+        will price their own players accordingly.</div>
+    </div>`)
+  }
+  if (pr.mostOverrated) {
+    callouts.push(`<div class="callout">
+      <div class="k">Most overrated by summing</div>
+      <div class="v">${esc(pr.mostOverrated.name)}</div>
+      <div class="why">Ranks <b>${pr.mostOverrated.naiveRank}</b> on roster total and
+        <b>${pr.mostOverrated.rank}</b> on starters, with
+        <b>${(pr.mostOverrated.wasted * 100).toFixed(0)}%</b> stranded on the bench. Depth
+        they cannot start is depth you can buy at a discount.</div>
+    </div>`)
+  }
+  if (callouts.length) h += `<div class="grid g2" style="margin-top:16px">${callouts.join('')}</div>`
+  head.innerHTML = h
+
+  /* --- the board ----------------------------------------------------------- */
+
+  // One shared scale across every team's bullet, anchored on the league median, so the
+  // bars are comparable to each other and the middle of the league is the origin.
+  const spread = pr.rows.map((r) => r.weighted - pr.median)
+  const bounds = niceBounds(spread)
+
+  let b = '<div class="tablewrap"><table class="board"><thead><tr>'
+    + '<th>#</th><th>Team</th><th>Manager</th><th class="r">Strength</th>'
+    + '<th>vs league median</th><th class="r">Playoff wks</th>'
+    + '<th class="r">Bench-locked</th><th class="r">By roster total</th>'
+    + '</tr></thead><tbody>'
+
+  for (const r of pr.rows) {
+    const d = r.weighted - pr.median
+    const zero = 50
+    const pos = ((d - bounds.min) / (bounds.max - bounds.min)) * 100
+    const left = Math.min(zero, pos)
+    const width = Math.abs(pos - zero)
+    const gapTxt = r.rankGap === 0 ? '—'
+      : `${r.rankGap > 0 ? '▲' : '▼'}${Math.abs(r.rankGap)}`
+
+    b += `<tr class="${r.mine ? 'me' : ''}">
+      <td class="n rk">${r.rank}</td>
+      <td class="who">${esc(r.name)}</td>
+      <td class="dim">${esc(r.owner)}</td>
+      <td class="r n">${f1(r.weighted)}</td>
+      <td style="min-width:180px">
+        <div class="bl-track" style="margin:0">
+          <i class="bl-zero" style="left:50%"></i>
+          <i class="bl-bar ${d > 0 ? 'pos' : d < 0 ? 'neg' : ''}"
+             style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%"></i>
+        </div>
+      </td>
+      <td class="r n dim">${r.playoffRank}</td>
+      <td class="r n">${(r.wasted * 100).toFixed(0)}%</td>
+      <td class="r"><span class="n dim">${r.naiveRank}</span>
+        <span class="gap ${r.rankGap > 0 ? 'up' : r.rankGap < 0 ? 'down' : 'dim'}">${gapTxt}</span></td>
+    </tr>`
+  }
+  b += '</tbody></table></div>'
+  b += '<p class="note"><b>Strength</b> is playoff-weighted starter points over the rest of '
+    + 'the season, every roster solved for its own optimal lineup week by week — the same '
+    + 'ledger the trade verdict uses. <b>Bench-locked</b> is the share of a roster\'s '
+    + 'projected points its own shape strands, measured flat so it isolates shape from '
+    + 'injury. <b>By roster total</b> is where a summing ranking would put them.</p>'
+  b += '<p class="note">Not shown, because the data does not support it: expected wins, '
+    + 'playoff odds and strength of schedule. The league carries only the current week\'s '
+    + 'matchups, so there is no remaining schedule to compute them from, and inventing one '
+    + 'would produce numbers that look authoritative and mean nothing.</p>'
+  $('powerBoard').innerHTML = b
+
+  /* --- positional map ------------------------------------------------------ */
+
+  // Recompute the z-scores the ranking already used, per position, so the map and the
+  // best/worst columns cannot disagree.
+  const zs = {}
+  for (const pos of CORE_POS) {
+    const vals = pr.rows.map((r) => r.shape[pos]?.startable || 0)
+    const mean = vals.reduce((x, v) => x + v, 0) / (vals.length || 1)
+    const sd = Math.sqrt(vals.reduce((x, v) => x + (v - mean) ** 2, 0) / (vals.length || 1)) || 1
+    zs[pos] = pr.rows.map((_, i) => (vals[i] - mean) / sd)
+  }
+
+  let m = '<div class="tablewrap"><table class="heat"><thead><tr><th class="who">Team</th>'
+    + CORE_POS.map((p) => `<th>${p}</th>`).join('') + '</tr></thead><tbody>'
+  pr.rows.forEach((r, i) => {
+    m += `<tr class="${r.mine ? 'me' : ''}"><td class="who">${esc(r.name)}</td>`
+    for (const pos of CORE_POS) {
+      const z = zs[pos][i]
+      // Shade by magnitude, capped at two standard deviations so one outlier does not
+      // wash the rest of the column out. The number is always printed.
+      const a = Math.min(1, Math.abs(z) / 2) * 0.22
+      const bg = z > 0
+        ? `rgba(143,187,160,${a.toFixed(3)})`
+        : `rgba(190,122,100,${a.toFixed(3)})`
+      m += `<td class="cell" style="background:${bg}">${sign(z)}${z.toFixed(2)}</td>`
+    }
+    m += '</tr>'
+  })
+  m += '</tbody></table></div>'
+  m += `<div class="legend">
+    <span><i style="background:rgba(143,187,160,0.22)"></i>above the league at that position</span>
+    <span><i style="background:rgba(190,122,100,0.22)"></i>below it</span>
+    <span class="dim">standard deviations from the league average of starter points above replacement</span>
+  </div>`
+  $('powerHeat').innerHTML = m
+}
+
 /* ------------------------------------------------------------------ players */
 
 const P_COLS = [
@@ -1361,6 +1526,7 @@ function renderAll() {
   renderStamp()
   if (state.view === 'trade') renderTrade()
   if (state.view === 'propose') renderPropose()
+  if (state.view === 'power') renderPower()
   if (state.view === 'players') renderPlayers()
   if (state.view === 'draft') renderDraft()
   if (state.view === 'league') { renderLeague(); renderEspnResult(null) }

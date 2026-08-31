@@ -978,3 +978,55 @@ details.ghostwrap > summary:hover { color: var(--muted); }
 .gauge .g-track { margin-top: var(--u); }
 .bl-legend { margin-top: 6px; }
 .bl-v, .gauge .g-v { font-size: 14px; }
+
+/* ------------------------------------------------------------- positional map
+ *
+ * Teams down, positions across, each cell shaded by how far that team sits from the
+ * league average at that position. A diverging encoding on the same sage/terracotta pair
+ * as everything else, with a neutral midpoint at the league average -- and the number is
+ * always printed, so the shading is a second channel and never the only one.
+ */
+.heat { width: 100%; border-collapse: collapse; font-size: 12px; }
+.heat th {
+  font-family: var(--sans); font-size: 9px; font-weight: 600; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--dim); text-align: right;
+  padding: 0 12px 12px 0; border-bottom: 1px solid var(--edge); white-space: nowrap;
+}
+.heat th.who { text-align: left; }
+.heat td {
+  padding: 10px 12px 10px 0; border-bottom: 1px solid var(--edge-faint); white-space: nowrap;
+}
+.heat td.who { font-weight: 500; }
+.heat td.cell {
+  font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right;
+  padding: 10px 12px; border-left: 1px solid var(--edge-faint);
+}
+.heat tr.me td { background: rgba(224, 176, 64, 0.05); }
+.heat tr.me td.who { color: var(--amber); font-weight: 600; }
+.heat tr.me td:first-child { box-shadow: inset 2px 0 0 var(--amber); }
+/* Descendant selector, again: the legend is a SIBLING of the table, so `.heat .legend`
+   matched nothing and the swatches rendered unstyled and invisible. */
+.legend {
+  font-family: var(--sans); font-size: 10px; color: var(--dim); margin-top: var(--u2);
+  display: flex; gap: var(--u3); align-items: center; flex-wrap: wrap;
+}
+.legend span { display: inline-flex; align-items: center; }
+.legend i {
+  display: inline-block; width: 20px; height: 10px; margin-right: 6px;
+  border: 1px solid var(--edge-faint);
+}
+
+/* Rank movement between the two ways of ranking. */
+.gap {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; white-space: nowrap;
+}
+.callout {
+  background: var(--sunken); border: 1px solid var(--edge-faint);
+  border-left: 2px solid var(--amber); padding: 12px var(--u2);
+}
+.callout .k {
+  font-family: var(--sans); font-size: 9px; font-weight: 600; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--dim);
+}
+.callout .v { font-size: 14px; font-weight: 600; margin-top: 4px; }
+.callout .why { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; }

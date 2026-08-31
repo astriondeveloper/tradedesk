@@ -31,7 +31,7 @@
  */
 
 import { DEFAULT_SCORING } from './scoring.js'
-import { slotsFromCounts } from './lineup.js'
+import { optimizeLineup, slotsFromCounts } from './lineup.js'
 import { computeReplacement } from './replacement.js'
 import { seasonLedger, playerPPG, remainingWeeks, DEFAULT_LEAGUE } from './trade.js'
 
@@ -134,10 +134,16 @@ export function leagueBoard(input) {
   const rows = applied.map((t, i) => {
     const s = teamStrength(t.players, ctx)
     return {
+      // Spread the team first so anything the caller attached -- owner, colours, an ESPN
+      // id -- survives. Rebuilding the row field by field silently dropped all of it, and
+      // the symptom was an empty Manager column three layers away.
+      ...t,
       index: i,
       name: t.name || `Team ${i + 1}`,
       players: t.players,
-      mine: i === inp.myIndex,
+      // An explicit myIndex wins; otherwise honour whatever the caller already marked,
+      // so a team list that knows which roster is the reader's keeps that knowledge.
+      mine: inp.myIndex != null ? i === inp.myIndex : !!t.mine,
       inPlay: !!swap && (i === swap.aIndex || i === swap.bIndex),
       ...s,
     }
@@ -421,4 +427,133 @@ export function counterplay(input) {
     }))
 
   return { exposed, likelyAsk, canGive, theirShape: theirs, myShape: mine }
+}
+
+/* ------------------------------------------------------------------ power rankings */
+
+/**
+ * Power rankings, ranked the way this app insists everything be ranked.
+ *
+ * Every public power ranking is, underneath, a sum of a roster. That is the exact mistake
+ * the rest of this application exists to correct: a third of a roster's projected points
+ * never reaches a starting lineup, and which third depends on the roster's shape. A team
+ * four deep at running back and empty at tight end sums beautifully and starts badly.
+ *
+ * So teams are ranked on playoff-weighted STARTER points -- the same seasonLedger the
+ * trade verdict and the league-impact board run on -- and the naive roster-total ranking
+ * is computed alongside it and shown, because the disagreement is the interesting part.
+ * A team the summed ranking has third and the starter ranking has sixth is a team whose
+ * manager is about to overvalue his own bench in a trade, which is actionable.
+ *
+ * What is NOT here, deliberately: expected wins, playoff odds and strength of schedule.
+ * The shipped league carries only the current week's matchups, so a full remaining
+ * schedule does not exist to compute them from. Inventing one would produce numbers that
+ * look authoritative and mean nothing.
+ */
+export function powerRankings(input) {
+  const inp = isObj(input) ? input : {}
+  const cfg = isObj(inp.cfg) ? inp.cfg : DEFAULT_SCORING
+  const league = { ...DEFAULT_LEAGUE, ...(isObj(inp.league) ? inp.league : {}) }
+
+  const board = leagueBoard({ ...inp, swap: null })
+  const { replacement } = board
+  const ctxWeeks = board.ctx.weeks
+  const flatSlots = slotsFromCounts(league.slots)
+
+  const rows = board.rows.map((r) => {
+    const shape = positionalShape(r.players, { cfg, league, replacement })
+
+    // How much of this roster its own shape strands on the bench.
+    //
+    // Measured FLAT -- no availability, no opponent adjustment, on both sides of the
+    // ratio -- which is deliberate and is not how the rank above is computed. The rank
+    // wants expected points, so an injury-prone star is correctly worth less there.
+    // This number is about a different failure: a roster four deep at one position and
+    // empty at another strands points no matter how healthy everyone is. Mixing the two
+    // bases booked injury risk as wasted bench and read six points high.
+    //
+    // Same basis as `scripts/thesis.mjs`, so the figure here and the one quoted in the
+    // README are the same measurement rather than two that nearly agree.
+    const flat = (p) => playerPPG(p, cfg)
+    const rosterPerWeek = r.players.reduce((s, p) => s + flat(p), 0)
+    let startedFlat = 0
+    for (const w of ctxWeeks) {
+      const active = r.players.filter((p) => p.bye !== w)
+      startedFlat += optimizeLineup(active, flatSlots, flat).total
+    }
+    const wasted = rosterPerWeek > 0
+      ? Math.max(0, 1 - (startedFlat / (rosterPerWeek * (ctxWeeks.length || 1))))
+      : 0
+
+    return {
+      index: r.index,
+      name: r.name,
+      owner: r.owner || '',
+      mine: !!r.mine,
+      weighted: r.weighted,
+      total: r.total,
+      perGame: r.perGame,
+      playoff: r.playoff,
+      rosterPerWeek,
+      wasted,
+      shape,
+    }
+  })
+
+  const rankBy = (list, key, dir = -1) => {
+    const order = list.slice().sort((a, b) => (a[key] - b[key]) * dir)
+    const at = new Map(order.map((r, i) => [r.index, i + 1]))
+    return (r) => at.get(r.index)
+  }
+  const realRank = rankBy(rows, 'weighted')
+  const naiveRank = rankBy(rows, 'rosterPerWeek')
+  const playoffRank = rankBy(rows, 'playoff')
+
+  // Per position, how each team compares to the rest of the league at that position.
+  // A z-score rather than a raw total, because "strong at QB" only means anything
+  // relative to what the other seven are starting there.
+  const zByPos = {}
+  for (const pos of ['QB', 'RB', 'WR', 'TE', 'K', 'DST']) {
+    const vals = rows.map((r) => num(r.shape[pos]?.startable, 0))
+    const mean = vals.reduce((s, v) => s + v, 0) / (vals.length || 1)
+    const sd = Math.sqrt(vals.reduce((s, v) => s + (v - mean) ** 2, 0) / (vals.length || 1)) || 1
+    zByPos[pos] = rows.map((_, i) => (vals[i] - mean) / sd)
+  }
+
+  rows.forEach((r, i) => {
+    r.rank = realRank(r)
+    r.naiveRank = naiveRank(r)
+    r.playoffRank = playoffRank(r)
+    // Positive means the starter ranking rates them ABOVE what summing their roster does.
+    r.rankGap = r.naiveRank - r.rank
+
+    const zs = CORE_POS.map((pos) => ({ pos, z: zByPos[pos][i] }))
+      .sort((a, b) => b.z - a.z)
+    r.best = zs[0]
+    r.worst = zs[zs.length - 1]
+  })
+
+  const ranked = rows.slice().sort((a, b) => a.rank - b.rank)
+  const weights = ranked.map((r) => r.weighted)
+  const median = weights.length
+    ? (weights.length % 2
+      ? weights[(weights.length - 1) / 2]
+      : (weights[weights.length / 2 - 1] + weights[weights.length / 2]) / 2)
+    : 0
+
+  // The teams the two methods disagree about most. Ties broken toward the larger absolute
+  // point gap, so a one-place difference on a knife edge does not outrank a real one.
+  const byGap = rows.slice().sort((a, b) => b.rankGap - a.rankGap || b.wasted - a.wasted)
+  const overrated = byGap[byGap.length - 1]
+  const underrated = byGap[0]
+
+  return {
+    rows: ranked,
+    replacement,
+    median,
+    spread: weights.length ? weights[0] - weights[weights.length - 1] : 0,
+    // Only worth surfacing when the two rankings actually disagree about somebody.
+    mostOverrated: overrated && overrated.rankGap < 0 ? overrated : null,
+    mostUnderrated: underrated && underrated.rankGap > 0 ? underrated : null,
+  }
 }

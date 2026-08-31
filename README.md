@@ -139,6 +139,41 @@ evaluates the balanced deals at all. Every rival roster is priced with the injur
 the league file carries, not at full availability, so a search does not quietly value a
 questionable player as healthy just because you have never opened his team.
 
+## Power rankings
+
+Every published power ranking is a sum of a roster wearing a suit, and summing a roster is
+the exact mistake this whole tool exists to correct. So the **Power** tab ranks teams on
+playoff-weighted **starter** points — the same ledger the trade verdict runs on — and shows
+the roster-total ranking beside it, because the disagreement is the interesting part.
+
+On the eight real rosters the two rankings disagree about most of the league:
+
+| | starters | roster total | |
+|---|---|---|---|
+| Brennan put BTA | **3rd** | 8th | ▲5 — least wasteful shape in the league |
+| Wastonder The Towel | **8th** | 4th | ▼4 — 40% of their points never start |
+| Pissed Off (you) | **6th** | 5th | ▼1 |
+
+A team the summed ranking has fourth and the starter ranking has eighth is a manager about
+to overvalue his own bench in a trade. That is not trivia, it is a price.
+
+**Bench-locked** is the share of a roster its own shape strands, and it is measured *flat* —
+no availability on either side of the ratio — deliberately. The rank above it wants expected
+points, so an injury-prone star is correctly worth less there. Bench-locked is about a
+different failure: a roster four deep at one position and empty at another strands points no
+matter how healthy everyone is. Mixing the two bases booked injury risk as wasted bench and
+read six points high before it was caught, against a figure `scripts/thesis.mjs` measures
+independently.
+
+The **positional map** scores every team at every position as standard deviations from the
+league average of starter points above replacement, so "strong at tight end" means something
+relative to what the other seven are actually starting there. Shading is a second channel;
+the number is always printed.
+
+Not shown, deliberately: expected wins, playoff odds, strength of schedule. The league
+carries only the current week's matchups, so there is no remaining schedule to compute them
+from, and inventing one would produce numbers that look authoritative and mean nothing.
+
 ## Watching a trade you are not in
 
 Two rivals trading changes your season without touching your roster, because standings are
@@ -442,7 +477,7 @@ app/js/            The engines. Plain ES modules, no dependencies.
   draft.js         live draft board
   espn.js          ESPN league import
   finder.js        trade search + acceptance model
-  scout.js         league board, roster shape, openings, ghosting matrix
+  scout.js         league board, power rankings, roster shape, openings, ghosting
   instruments.js   bullet charts, gauges, funnels -- pure, tested geometry
   main.js          UI
 

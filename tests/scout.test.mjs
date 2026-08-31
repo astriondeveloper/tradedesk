@@ -14,7 +14,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   leagueBoard, tradeImpact, positionalShape, openings, teamStrength,
-  leagueContext, startableDepth, CORE_POS,
+  leagueContext, startableDepth, powerRankings, CORE_POS,
 } from '../app/js/scout.js'
 import { playerPPG, DEFAULT_LEAGUE } from '../app/js/trade.js'
 import { DEFAULT_SCORING } from '../app/js/scoring.js'
@@ -332,4 +332,85 @@ test('board strength agrees with a direct seasonLedger call', () => {
     assert.ok(Math.abs(direct.total - r.total) < 1e-6,
       `${r.name}: board says ${r.total}, ledger says ${direct.total}`)
   }
+})
+
+/* ------------------------------------------------------------------ power rankings */
+
+test('power rankings rank on starters and report the summing rank alongside', () => {
+  const teams = league()
+  const pr = powerRankings({ teams, ...CTX, myIndex: 2 })
+
+  assert.equal(pr.rows.length, 6)
+  assert.deepEqual(pr.rows.map((r) => r.rank), [1, 2, 3, 4, 5, 6], 'ranked, in order')
+  const naive = pr.rows.map((r) => r.naiveRank).sort((a, b) => a - b)
+  assert.deepEqual(naive, [1, 2, 3, 4, 5, 6], 'the summing rank is a clean permutation too')
+
+  // The real rank must follow weighted starter points, not roster totals.
+  for (let i = 1; i < pr.rows.length; i++) {
+    assert.ok(pr.rows[i - 1].weighted >= pr.rows[i].weighted)
+  }
+  // And the summing rank must follow roster totals.
+  const byNaive = pr.rows.slice().sort((a, b) => a.naiveRank - b.naiveRank)
+  for (let i = 1; i < byNaive.length; i++) {
+    assert.ok(byNaive[i - 1].rosterPerWeek >= byNaive[i].rosterPerWeek)
+  }
+  assert.equal(pr.rows.filter((r) => r.mine).length, 1, 'exactly one team is the reader')
+})
+
+test('rankGap is the disagreement between the two rankings, signed toward the reader', () => {
+  const pr = powerRankings({ teams: league(), ...CTX, myIndex: 0 })
+  for (const r of pr.rows) {
+    assert.equal(r.rankGap, r.naiveRank - r.rank,
+      'positive means starters rate them above what summing does')
+  }
+  // The callouts must agree with the column they are drawn from.
+  if (pr.mostUnderrated) assert.ok(pr.mostUnderrated.rankGap > 0)
+  if (pr.mostOverrated) assert.ok(pr.mostOverrated.rankGap < 0)
+})
+
+test('bench-locked share is a plausible fraction and isolates shape from injury', () => {
+  const pr = powerRankings({ teams: league(), ...CTX })
+  for (const r of pr.rows) {
+    assert.ok(r.wasted >= 0 && r.wasted < 1, `${r.name} wasted ${r.wasted}`)
+    // A legal roster starting 9 of 16 strands a real share; anything near zero or near one
+    // means the measurement has drifted onto a different basis.
+    assert.ok(r.wasted > 0.15 && r.wasted < 0.6, `${r.name} wasted ${(r.wasted * 100).toFixed(1)}%`)
+  }
+
+  // The flat basis is the point: marking a player out changes the RANK inputs but must
+  // not move the bench-locked figure, because that is about lineup shape, not health.
+  const teams = league()
+  const hurt = teams.map((t, i) => (i === 0
+    ? { ...t, players: t.players.map((p, j) => (j === 1 ? { ...p, avail: 0.1 } : p)) }
+    : t))
+  const before = powerRankings({ teams, ...CTX })
+  const after = powerRankings({ teams: hurt, ...CTX })
+  const b0 = before.rows.find((r) => r.index === 0)
+  const a0 = after.rows.find((r) => r.index === 0)
+  assert.ok(Math.abs(a0.wasted - b0.wasted) < 1e-9,
+    'availability must not leak into the shape measurement')
+  assert.ok(a0.weighted < b0.weighted, 'but it must move the strength that drives the rank')
+})
+
+test('best and worst position are measured against the league, not in isolation', () => {
+  const pr = powerRankings({ teams: league(), ...CTX })
+  for (const r of pr.rows) {
+    assert.ok(CORE_POS.includes(r.best.pos))
+    assert.ok(CORE_POS.includes(r.worst.pos))
+    assert.ok(r.best.z >= r.worst.z)
+  }
+  // Z-scores at each position must centre on the league, so they sum to about zero.
+  for (const pos of CORE_POS) {
+    const zs = pr.rows.map((r) => (r.best.pos === pos ? r.best.z : r.worst.pos === pos ? r.worst.z : null))
+      .filter((z) => z !== null)
+    for (const z of zs) assert.ok(Number.isFinite(z))
+  }
+})
+
+test('the board preserves fields the caller attached to a team', () => {
+  // Regression: leagueBoard rebuilt each row field by field and dropped `owner`, which
+  // surfaced as an empty Manager column in the power rankings.
+  const teams = league().map((t, i) => ({ ...t, owner: `Manager ${i}` }))
+  const pr = powerRankings({ teams, ...CTX })
+  for (const r of pr.rows) assert.match(r.owner, /^Manager \d$/)
 })

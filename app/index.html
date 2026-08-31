@@ -26,6 +26,7 @@
 <nav class="tabs" role="tablist">
   <button role="tab" data-view="trade" aria-selected="true">Trade</button>
   <button role="tab" data-view="propose" aria-selected="false">Propose</button>
+  <button role="tab" data-view="power" aria-selected="false">Power</button>
   <button role="tab" data-view="players" aria-selected="false">Players</button>
   <button role="tab" data-view="draft" aria-selected="false">Draft</button>
   <button role="tab" data-view="league" aria-selected="false">League</button>
@@ -143,6 +144,28 @@
     </div>
   </div>
   <div id="fResults"></div>
+</section>
+
+<!-- ------------------------------------------------------------------ POWER -->
+<section class="view" id="view-power" hidden>
+  <div class="panel">
+    <p class="eyebrow">
+      <b>Power rankings</b> &nbsp;·&nbsp; ranked on starters, not on roster totals
+      <span class="spacer"></span>
+      <span class="dim" id="powerAs"></span>
+    </p>
+    <div id="powerHead"></div>
+  </div>
+
+  <div class="panel">
+    <p class="eyebrow"><b>The board</b></p>
+    <div id="powerBoard"></div>
+  </div>
+
+  <div class="panel" data-collapsible>
+    <p class="eyebrow"><b>Positional map</b> &nbsp;·&nbsp; who is strong where, against the league</p>
+    <div id="powerHeat"></div>
+  </div>
 </section>
 
 <!-- ------------------------------------------------------------------ PLAYERS -->

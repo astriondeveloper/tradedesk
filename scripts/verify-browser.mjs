@@ -292,6 +292,49 @@ await page.waitForTimeout(500)
 await page.locator('#loadLeague').click()
 await page.waitForTimeout(2500)
 
+/* ------------------------------------------------------------------ power rankings */
+
+await page.locator('nav.tabs button[data-view="power"]').click()
+await page.waitForTimeout(7000)
+
+const powerRows = await page.locator('#powerBoard .board tbody tr').count()
+note(powerRows >= 2, 'the power board ranks the league', `${powerRows} teams`)
+note(await page.locator('#powerBoard .board tr.me').count() === 1, 'your team is marked on the board')
+
+// Manager is a column the caller supplies, and it reached the table through three layers.
+// It rendered empty until leagueBoard stopped rebuilding rows field by field.
+const managers = await page.locator('#powerBoard .board tbody tr td:nth-child(3)').allTextContents()
+note(managers.filter((m) => m.trim()).length === powerRows,
+  'every row carries its manager', managers.filter(Boolean).slice(0, 2).join(', '))
+
+// The two rankings must both be complete permutations, or one of them is lying.
+const ranks = await page.evaluate(() => {
+  const rows = [...document.querySelectorAll('#powerBoard .board tbody tr')]
+  return {
+    real: rows.map((r) => parseInt(r.children[0].textContent, 10)),
+    naive: rows.map((r) => parseInt(r.children[7].textContent, 10)),
+  }
+})
+const perm = (a) => JSON.stringify([...a].sort((x, y) => x - y))
+  === JSON.stringify(a.map((_, i) => i + 1))
+note(perm(ranks.real), 'the starter ranking is a clean permutation', ranks.real.join(','))
+note(perm(ranks.naive), 'the roster-total ranking is too', ranks.naive.join(','))
+note(ranks.real.join(',') !== ranks.naive.join(','),
+  'and the two disagree, which is the point of showing both')
+
+const heatRows = await page.locator('#powerHeat .heat tbody tr').count()
+note(heatRows === powerRows, 'the positional map covers every team', `${heatRows} rows`)
+const heatCells = await page.locator('#powerHeat .heat td.cell').count()
+note(heatCells === powerRows * 4, 'four core positions per team', `${heatCells} cells`)
+// Shading is a second channel; the number must always be printed.
+const cellText = await page.locator('#powerHeat .heat td.cell').allTextContents()
+note(cellText.every((t) => /[-+]\d+\.\d\d/.test(t)),
+  'every heat cell prints its value, so colour is never the only channel')
+
+const powerText = await page.locator('#view-power').textContent()
+note(!/NaN|undefined/.test(powerText || ''), 'no NaN in the power rankings')
+await page.screenshot({ path: join(SHOTS, 'desktop-power.png'), fullPage: true })
+
 // --- ESPN import ---
 await page.locator('nav.tabs button[data-view="league"]').click()
 await page.waitForTimeout(700)
