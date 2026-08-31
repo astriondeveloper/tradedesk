@@ -9,12 +9,12 @@ name: pages
 #                 code change ships in about two minutes without touching the data.
 #   schedule      re-fetch every volatile source, refit the projections, then deploy.
 #                 Injury reports, depth charts, rosters, box scores and betting lines all
-#                 move overnight; this is what makes the page current the next morning.
+#                 move through the week; this is what keeps the page current between pushes.
 #
 # The rebuilt pack is deliberately NOT committed back. It is 2MB, it changes every day,
-# and committing it would add roughly 700MB a year of git history for data that is
+# and committing it would add many gigabytes a year of git history for data that is
 # reproducible from `pipeline/refresh.py` in a minute. The repo keeps a known-good pack
-# for local use; the hosted page gets a fresh one daily.
+# for local use; the hosted page gets a fresh one every six hours.
 
 on:
   push:
@@ -24,10 +24,18 @@ on:
       - 'docs/**'
       - '.github/workflows/tests.yml'
   schedule:
-    # 11:00 UTC daily -- 7am Eastern, 6am Central. The consensus board rescrapes
-    # overnight and the previous evening's practice reports are in by then, so this is
-    # the first build of the day that knows anything new.
-    - cron: '0 11 * * *'
+    # Every six hours, rather than once a morning.
+    #
+    # A daily rebuild is never more than a day stale, which sounds fine and is not: the
+    # things that move during a football week do not wait for the morning. Wednesday and
+    # Thursday practice reports post in the afternoon, game designations land Friday
+    # evening, the consensus board rescrapes continuously, and betting lines fill in as
+    # they are posted. A once-a-day build sees all of it late by up to 24 hours.
+    #
+    # Four runs is cheap -- Actions minutes are free on a public repo and a warm-cache
+    # rebuild takes about four minutes -- and it caps staleness at six hours without
+    # anyone having to reason about which day of the week it is.
+    - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
       refresh:

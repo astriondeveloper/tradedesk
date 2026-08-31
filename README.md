@@ -4,7 +4,7 @@ A full-PPR fantasy football projection system and a trade evaluator that does th
 public analyzers skip.
 
 **Live: [astriondeveloper.github.io/tradedesk](https://astriondeveloper.github.io/tradedesk/)** —
-rebuilt from fresh data every morning.
+rebuilt from fresh data every six hours.
 
 Or open `dist/tradedesk.html` in a browser. No server, no network, no install — the data is
 baked in, including all eight rosters in the league. Either way it opens on your team against
